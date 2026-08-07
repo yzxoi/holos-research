@@ -5,12 +5,18 @@
   "description": "Structured research management — from idea discovery through paper submission, with full state machine tracking, adversarial review, and audit trail.",
   "repo": "https://github.com/yzxoi/holos-research",
   "author": {
-    "name": "unknown"
+    "name": "Zhengxi YU",
+    "url": "https://github.com/yzxoi"
   },
   "verified": false,
   "official": false,
   "keywords": [
-    "synergy-plugin"
+    "synergy-plugin",
+    "research",
+    "academic",
+    "literature",
+    "state-machine",
+    "paper"
   ],
   "compatibility": {
     "synergy": ">=3.0.11"
@@ -159,5 +165,6 @@
       "publishedAt": "2026-08-07T17:28:47.039Z"
     }
   ],
-  "yankedVersions": []
+  "yankedVersions": [],
+  "homepage": "https://github.com/yzxoi/holos-research"
 }
