@@ -1,0 +1,658 @@
+# Idea Explore — Wonder-Driven Research Direction Discovery
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL research files under `.research/`** — never write to project root.
+2. **Follow AGENTS.md** at project root — code discipline, tool usage, and directory structure.
+3. **Proactively use `research_wiki(ingest_paper)`** for every relevant paper found — do NOT list them in text.
+4. **Register research gaps** with `research_wiki(register_gap)` as you discover them during the survey.
+5. **Record key insights and decisions** via `research_timeline(append_free_event)`.
+6. **End the session** with `research_state(action="brief")` to update AGENTS.md.
+
+---
+
+## RCM Mode (default when RDC + RCM are available)
+
+When the RDC research data center and RCM pipeline engine are both available, replace the
+entire multi-step subagent workflow below with a single RCM CLI call.
+
+RCM handles: landscape survey, wonder signal extraction, 3-lens ideation, novelty check,
+adversarial review, idea pool ranking, and gate verdict — AND writes results to RDC.
+
+### Entry check
+- [ ] RDC is running (`rdc_read(entity_type="research")` works)
+- [ ] RCM CLI is available (`which accelerate`)
+- [ ] `RDC_URL` and `RDC_RESEARCH_ID` environment variables are set
+- [ ] Focus phase is `explore` (confirmed via `research_state(action="read")`)
+
+### Step A: Load anchor
+
+```
+research_state(action="read")
+```
+
+Extract `anchor`, `research_id`, and `project` from the response.
+
+### Step B: Call RCM explore pipeline
+
+Use `bash` tool to call RCM CLI. The RCM `explore.rcm` reads from RDC via `rdc_read`
+and writes results (ideas, story_spines, lit_papers, gate_records) back to RDC via `rdc_write`.
+
+```bash
+RDC_URL=http://localhost:3000/api/v1 \
+RDC_RESEARCH_ID=<research_id> \
+accelerate run /path/to/RCM/examples/autoresearch/rcm/explore.rcm \
+  --purpose "<anchor_text>" \
+  --stream 2>&1 | tee /tmp/rcm-explore-output.log
+```
+
+Use `background: true` and monitor progress via `process` tool. Set an appropriate
+timeout (10-20 minutes for explore).
+
+### Step C: Read results from RDC
+
+After RCM completes successfully:
+
+```
+research_idea(action="list")
+```
+
+Read each idea's `.md` to understand its StorySpine, novelty analysis, and review feedback.
+
+### Step D: Present to user with checkpoint
+
+**⏸ CHECKPOINT: taste_selection**
+
+Present the ranked idea pool to the user. Include:
+- Problem anchor (2-3 sentences)
+- Survey coverage (papers examined, wonder signals identified)
+- Surviving ideas with story spines, novelty, decisive test
+- Gate verdict from RCM (from `gate_records` table)
+
+Record user's selection:
+
+```
+research_idea(action="select", id="idea_XXX", decided_by="human", reason="<user's rationale>")
+```
+
+### Step F: Record gate and advance
+
+```
+research_timeline(action="append_free_event", event_type="milestone",
+  summary="RCM explore completed: N ideas generated, user selected idea_XXX",
+  event_refs=["idea_XXX"])
+research_state(action="advance", target_phase="ground",
+  summary="Grounding selected idea: <title>",
+  reason="Idea selected by user from RCM explore pipeline",
+  refs_idea="idea_XXX")
+```
+
+### RCM mode checklist
+- [ ] RCM process completed without error
+- [ ] RDC `research_idea(action="list")` returns ≥1 idea with status `proposed`
+- [ ] Gate verdict is `strong` or `acceptable` (not `insufficient` or `blocked`)
+- [ ] User has confirmed taste_selection checkpoint
+- [ ] Focus phase advanced to `ground`
+
+### Fallback
+
+If RCM is unavailable (CLI not found, process fails, or returns `insufficient`),
+fall through to the Traditional Subagent Mode below. The RCM error output is in
+`/tmp/rcm-explore-output.log` for debugging.
+
+---
+
+## Core Principle: Start From Friction, Not Decoration
+
+Novel ideas come from mismatches — not from "what clever thing can I add". Capture the mismatch first, then propose an intervention.
+
+**High-value signals to hunt for:**
+- Anomaly: a result that breaks the current model of the system
+- Contradiction: paper A and paper B imply different stories
+- Missing mechanism: a gain is reported, but the causal reason is unclear
+- Brittleness: works in one regime, fails in another
+- Missing measurement: a strong claim without the metric that would verify it
+- Cross-domain resonance: a bottleneck from one area looks structurally similar to another
+
+**Before proposing any method, ask:**
+1. What hidden variable would make this observation unsurprising?
+2. Which implicit assumption is probably false?
+3. What evidence is missing that would distinguish between two explanations?
+4. Is the bottleneck in representation, objective, search, feedback, or evaluation?
+5. What is the simplest control that could explain the result away?
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- [ ] Every top-K idea has a StorySpine with: field_assumption, pain_point, non_obvious_insight, what_changes_if_true
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- [ ] At least 2 candidate_paper_angles per top idea
+- [ ] Ideas are ranked by batch ranking, not manual filtering
+- [ ] User taste checkpoint before entering ground
+- [ ] Each idea starts from a concrete signal (anomaly/contradiction/missing mechanism), not from "what if we combined X and Y"
+
+### Forbidden
+- [ ] Do not select a single idea too early — keep diverse candidates until user confirms
+- [ ] Do not generate ideas without anchor alignment check
+- [ ] Do not propose ideas that are mostly "paper X did not test setting Y"
+- [ ] Do not propose prompt variants masquerading as methods
+- [ ] Do not propose complexity increases without a clearly isolated bottleneck
+
+### Checkpoints
+- [ ] taste_selection: Present top-K with StorySpine scores, let user choose 2-5 for grounding
+
+---
+
+## File & Subagent Conventions
+
+Load as needed:
+- `skill(name="experiment-cycle", reference="references/inspire-compute.md")` — GPU region and image policy for pilot experiments
+
+### When dispatching scholar
+```
+File conventions for this project:
+- Return all text findings in your response — the main agent writes them to .research/.
+- For important papers (core relevance):
+  1. Call research_wiki(action="ingest_paper", title="...", authors=[...], year=..., venue="...", arxiv="...", thesis="...", method="...", key_results="...", limitations="...", project_relevance="...")
+  2. Download PDF via arxiv_download to .research/literature/papers/{arxiv_id}.pdf
+- For minor papers: return title/arxiv/venue as text, main agent decides whether to ingest.
+```
+
+### When dispatching scout
+```
+Return all findings as text in your response. The main agent handles file organization.
+```
+
+---
+
+## DAG Template
+
+Create this DAG at skill entry. Adjust based on `config.exploration.depth`.
+
+```
+dagwrite({ nodes: [
+  { id: "anchor",     content: "Freeze problem anchor, clarify with user",       status: "pending", deps: [] },
+  { id: "survey",     content: "Broad landscape survey (3-4 subagents)",         status: "pending", deps: ["anchor"] },
+  { id: "wonder",     content: "Extract wonder signals from survey results",     status: "pending", deps: ["survey"] },
+  { id: "generate",   content: "Wonder-driven idea generation (3 subagents)",    status: "pending", deps: ["wonder"] },
+  { id: "novelty",    content: "Per-claim novelty check (parallel scholars)",    status: "pending", deps: ["generate"] },
+  { id: "review",     content: "Adversarial review of survivors",                status: "pending", deps: ["novelty"], assign: "critic" },
+  { id: "pilot",      content: "Pilot experiments (if enabled)",                 status: "pending", deps: ["review"] },
+  { id: "present",    content: "Present ranked ideas, handle user decision",     status: "pending", deps: ["pilot"] },
+  { id: "writeback",  content: "Knowledge writeback to wiki and memory",         status: "pending", deps: ["present"] }
+]})
+```
+
+If `config.exploration.depth == "thorough"`, add `deep-dive` between `survey` and `wonder`.
+If `config.exploration.pilot != "enabled"`, set `pilot` status to `cancelled`.
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="idea exploration status")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## Prerequisites
+
+- `.research/` exists (call `research_init(project="<name>", anchor="<direction>")` if not)
+- `research_state` shows `phase: explore` (or orchestrator has routed here)
+
+## Output contract
+
+- Multiple `idea_XXX` objects registered via `research_idea`
+- Each idea has a status: `exploring` / `parked` / `rejected`
+- At least one idea is ready for user selection
+- `.research/literature/survey.md` contains the full survey
+- Relevant papers ingested into wiki via `research_wiki(ingest_paper)`
+- Gaps registered via `research_wiki(register_gap)`
+
+---
+
+## Step 0: Problem Anchor
+
+Before any survey work, freeze the research problem to prevent drift.
+
+### 0.1 Clarify with the user
+
+If the user has not already provided a clear problem statement, ask:
+
+- **Bottom-line problem**: What is the core research challenge?
+- **Must-solve bottleneck**: What specific weakness makes this problem worth attacking?
+- **Non-goals**: What are we explicitly NOT doing?
+- **Constraints**: Compute budget, deadline, target venue, available datasets
+- **Success condition**: What evidence would confirm the problem is solved?
+
+### 0.2 Reject overly broad directions
+
+If the direction is too broad, ask the user to narrow. Suggest 2-3 concrete sub-directions.
+
+### 0.3 Initialize state and set anchor
+
+```
+research_state(action="advance", target_phase="explore",
+  anchor="<user's research direction in their own words>",
+  summary="<one-line problem anchor>",
+  reason="Starting exploration for: <problem>")
+```
+
+### 0.4 Recover prior knowledge
+
+```
+research_wiki(action="query", query="<research direction>", limit=5)
+```
+
+### 0.5 Drift check protocol
+
+Throughout the skill, after every major step, verify: does this still address the anchored problem?
+
+---
+
+## Step 1: Landscape Survey
+
+### Round 1: Broad Mapping (3-4 subagents in parallel)
+
+Deploy agents to map the terrain. **Focus on friction points** — not just "what exists" but "what doesn't fit":
+
+```
+task(subagent_type="scholar", background=true):
+  "Search arxiv for [direction] papers from the last 12 months. Focus on:
+   (1) core methods and their mechanisms
+   (2) reported limitations and open questions
+   (3) ANOMALIES: results that seem contradictory or don't fit the prevailing story
+   (4) MISSING MEASUREMENTS: claims without the metric that would actually verify them
+   For each paper: title, authors, year, venue, arxiv ID, one-line method, key result, limitation.
+   For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
+   For minor papers: return title/arxiv/venue as text."
+
+task(subagent_type="scholar", background=true):
+  "Search for survey papers and position papers on [direction] from 2024-2026.
+   Identify: consensus vs controversy, emerging sub-directions,
+   and especially CONTRADICTIONS between different groups' findings.
+   For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
+   For minor papers: return title/arxiv/venue as text."
+
+task(subagent_type="scholar", background=true):
+  "Search for [direction] in top venues (NeurIPS/ICML/ICLR/ACL/EMNLP 2025-2026).
+   Focus on: accepted papers, their reviews (if public), recurring reviewer concerns,
+   and BRITTLENESS: where methods succeed and where they break.
+   For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
+   For minor papers: return title/arxiv/venue as text."
+
+task(subagent_type="scout", background=true):
+  "Search GitHub and industry for implementations or products related to [direction].
+   Focus on: what practitioners are actually building vs what papers claim,
+   common complaints in issues, DEPLOYMENT FAILURES, and real-world constraints not in papers.
+   Return as text: source, insight, relevance."
+```
+
+### Round 2: Deep Dive (thorough depth only)
+
+If `config.exploration.depth == "thorough"`, add a second round targeting specific gaps from Round 1.
+
+### Time freshness rules
+
+- **Last 3 months**: most critical window — check arxiv and social media
+- **Last 6 months**: standard relevance for method papers
+- **Last 2 years**: context and foundational understanding
+- **Older than 2 years**: only for foundational techniques or historical context
+
+### Survey writeback
+
+After all rounds complete, synthesize into:
+
+1. Write `.research/literature/survey.md` with sections:
+   - Landscape Overview
+   - Academic Methods (grouped by approach, with dates)
+   - Industry Signals
+   - **Wonder Signals** (anomalies, contradictions, missing mechanisms, brittleness)
+   - Gaps and Open Problems
+   - Time-Critical Signals (last 3 months)
+   - Failed Approaches (banlist for idea generation)
+
+2. Register gaps: `research_wiki(action="register_gap", ...)`
+
+3. Verify paper coverage: `research_wiki(action="stats")`
+
+---
+
+## Step 2: Wonder Signal Extraction
+
+**This is the key differentiator from v2.1.** Instead of jumping from gap analysis to generic ideation, first extract and sharpen the friction signals.
+
+### 2.1 From survey to wonder log
+
+Go through the survey findings and extract every signal that doesn't fit:
+
+| Signal Type | Source | What doesn't fit | Why it matters | Next check |
+|-------------|--------|------------------|----------------|------------|
+| Anomaly | Paper X reports Y | Expected Z based on theory | Would mean [assumption] is wrong | Test [specific thing] |
+| Contradiction | Paper A vs Paper B | A says X helps, B says X hurts | Different conditions? Missing variable? | Control for [variable] |
+| Missing mechanism | Paper C | Gain reported without explanation | If we knew why, we could amplify or predict it | Ablate [component] |
+| Brittleness | Method D | Works on X, fails on Y | Regime split → different bottleneck | Characterize the boundary |
+| Missing measurement | Paper E | Strong claim without verification metric | The metric that would falsify is absent | Run the missing metric |
+
+### 2.2 Sharpen each signal
+
+For each wonder signal, ask:
+1. What hidden variable would make this unsurprising?
+2. Which implicit assumption is probably false?
+3. What is the simplest control that could explain it away?
+
+If a signal survives sharpening, it becomes a **seed for ideation**.
+
+---
+
+## Step 3: Wonder-Driven Idea Generation
+
+Deploy **3 parallel agents**, each with a different creative lens. All three receive the Problem Anchor and wonder signals, but approach differently:
+
+### Agent 1 — Wonder-driven mechanism hypotheses
+
+Generate ideas by **sharpening wonder signals into mechanism hypotheses**. For each signal:
+1. Propose what hidden variable, broken assumption, or missing measurement would explain it
+2. Design the **smallest intervention** that targets the bottleneck
+3. Design the **decisive test** that could kill the idea
+
+Focus on: anomaly explanations, hidden variable reveals, regime splits, re-grounding comparisons.
+
+### Agent 2 — Cross-domain structural transfer
+
+Generate ideas by borrowing **only the core causal primitive** from another field — not the whole surface method. Only transfer when the bottleneck is actually the same structural problem.
+
+Focus on: representation mismatches, objective mismatches, search geometry, feedback loop structures.
+
+### Agent 3 — Contrarian / diagnostic
+
+Generate ideas that **challenge assumptions** or **invert claims**:
+- When should the celebrated mechanism fail, saturate, or become unnecessary?
+- What diagnostic tool would expose the real failure mode?
+- What benchmark is hiding the real problem?
+
+### Idea format (include in each prompt):
+
+```yaml
+- title: [5-10 word name]
+- core_insight: [one sentence — what hidden variable or broken assumption]
+- wonder_signal: [which anomaly/contradiction/missing measurement this comes from]
+- anchor_alignment: [one sentence: how this addresses the research anchor]
+- differs_from: [cite_key, how it differs]
+- contribution_type: [new_method | new_analysis | new_problem | method_transfer | diagnostic]
+- idea_operator: [reveal_hidden_state | repair_interface | add_regrounding | split_regimes | challenge_metric | transfer_causal_primitive | invert_claim]
+- risk_level: [LOW | MEDIUM | HIGH]
+- simplest_intervention: [minimum change that targets the bottleneck]
+- decisive_test: [smallest experiment that could kill the idea]
+- simplest_baseline: [obvious control or prompt baseline]
+- null_result_teaches: [why the test is still decision-relevant if it fails]
+- story_spine:
+    field_assumption: [what does the field currently assume?]
+    pain_point: [what specific failure does this create?]
+    non_obvious_insight: [the surprising mechanism or connection]
+    why_now: [what changed to make this possible or urgent?]
+    what_changes_if_true: [who benefits and how does practice shift?]
+- candidate_paper_angles:
+    - [type 1]
+    - [type 2, different from first]
+- impact:
+    tier: [paradigm | enabler | incremental]
+```
+
+### Generation rules (include in each prompt):
+
+- Every idea must trace back to a wonder signal — no "what if we combined X and Y" without a friction point
+- Reject ideas that collapse into: "missing baseline", "untested setting", "a stronger prompt probably does it", or "complexity increase without isolated bottleneck"
+- Keep only ideas whose **positive or negative outcome would change understanding or decisions**
+- `anchor_alignment` is mandatory — if you can't write a convincing one-sentence alignment, drop the idea
+- StorySpine is mandatory — if any field is weak, push back for concretization
+- Every top idea must have ≥2 candidate_paper_angles (different contribution types)
+- Maximize methodological diversity — avoid variations on a single theme
+
+### Novelty filter (apply to each idea before registering)
+
+Demote or reject if it is mostly:
+- "paper X did not test setting Y" — unless the setting reveals a mechanism
+- a prompt variant masquerading as a method
+- a complexity increase without a clearly isolated bottleneck
+- a benchmark-only gain that would not change decisions
+- a story whose strongest baseline is still undefined
+
+Keep if it clarifies mechanism, changes deployment decisions, or reveals a previously hidden failure boundary.
+
+After all 3 agents return, merge into a single candidate pool (typically 12-18 ideas).
+
+---
+
+## Step 4: Convergent Filtering and Registration
+
+### 4.1 Anchor alignment check
+
+For each idea:
+- **ALIGNED**: Directly addresses the anchor. Keep.
+- **ADJACENT**: Related but different mechanism. Keep only if novelty is exceptional.
+- **DRIFTED**: Does not address the anchor. Remove.
+
+### 4.2 Quality filtering
+
+Remove:
+- Duplicates or near-identical ideas
+- Ideas in the banlist
+- Ideas without a concrete wonder signal origin
+- Ideas where `simplest_baseline` would probably explain the result
+
+### 4.3 Register surviving candidates
+
+```
+research_idea(action="create", title="<title>", content="## Core Insight\n\n[key insight]\n\n## Wonder Signal\n\n[anomaly/contradiction that inspired this]\n\n## Novelty Analysis\n\n[what makes this different]\n\n## Idea Operator\n\n[which operator was applied]\n\n## Decisive Test\n\n[smallest experiment that could kill the idea]\n\n## Feasibility\n\n[GPU hours, data, risks]")
+```
+
+---
+
+## Step 5: Per-Claim Novelty Check
+
+For the top 5-8 candidates, verify novelty per claim (same as v2.1 — parallel scholar dispatches).
+
+### 5.1 Build novelty summary table
+
+| Idea | Claim A | Claim B | Overall |
+|------|---------|---------|---------|
+| idea_001 | SCOOPED | Novel | PROCEED WITH CAUTION |
+| idea_003 | Novel | Novel | Strong novelty |
+
+### 5.2 Ruling
+
+- ALL claims scooped → `research_idea(action="reject")`
+- SOME claims scooped → keep as `exploring`, note which claims need redesign
+- NO claims scooped → strong novelty, top candidate
+
+### 5.3 Time-sensitivity check
+
+For each "novel" claim, verify no concurrent work in the last 3 months.
+
+---
+
+## Step 6: Adversarial Review
+
+For each idea that survived Step 5, dispatch the `critic` subagent:
+
+```
+task(subagent_type="critic", background=true):
+  "Review this research idea for a top-venue submission.
+
+   ## Problem Anchor
+   [paste anchor verbatim]
+
+   ## Idea Under Review
+   [paste idea description, novelty breakdown, wonder signal, decisive test]
+
+   Challenge specifically:
+   1. Does this start from a real friction point, or is it decoration?
+   2. What's the strongest objection a reviewer would raise?
+   3. What's the most likely failure mode?
+   4. Is the contribution type correctly classified?
+   5. Would the simplest_baseline explain the expected result away?
+   6. Does a null result still teach us something?
+
+   Score: novelty (1-10), feasibility (1-10), significance (1-10), anchor_alignment (1-10), overall (1-10).
+   Verdict: pass / revise / rethink.
+   Action items: specific fixes if verdict is revise.
+   Return structured text."
+```
+
+Record reviews: `research_idea(action="review", ...)`
+
+---
+
+## Step 7: Pilot Experiment (optional)
+
+Only if `config.exploration.pilot == "enabled"` AND depth is standard or thorough.
+
+For the top 1-3 candidates that passed Step 6:
+- Budget: ≤10% of available quota
+- Target: <30 min on 1 GPU
+- Report: setup, observations, Go/No-Go
+
+Record: `research_idea(action="update", id="idea_XXX", notes="## Pilot Results\n\n...")`
+
+---
+
+## Step 8: Present to User
+
+**⏸ CHECKPOINT — do not proceed without user input.**
+
+**Checkpoint kind: `taste_selection`**
+
+Present a structured report:
+
+### Problem Anchor
+(2-3 sentences)
+
+### Survey Coverage
+- Papers examined: N
+- Wonder signals identified: N (anomalies, contradictions, missing mechanisms, etc.)
+- Date range: YYYY-MM to YYYY-MM
+
+### Surviving Ideas
+
+| Rank | ID | Title | Wonder Signal | Novelty | Feasibility | Impact Tier | Decisive Test |
+|------|----|-------|---------------|---------|-------------|-------------|---------------|
+
+### Per-Idea Detail (for each surviving idea)
+- Core insight + wonder signal origin
+- StorySpine
+- Novelty breakdown
+- Decisive test + simplest baseline + null result teaches
+- Reviewer verdict and key concern
+- Candidate paper angles (≥2)
+
+### Eliminated Ideas
+
+| ID | Title | Reason | Stage eliminated |
+|----|-------|--------|------------------|
+
+### Taste Selection Checkpoint
+
+**Options for user**:
+1. **Select 2-5 candidates** for grounding — `research_idea(action="select")`
+2. **Park candidates** for later — `research_idea(action="park")`
+3. **Reject candidates** with feedback — `research_idea(action="reject")`
+4. **Request more exploration** — return to Step 1 with adjusted scope
+5. **Combine ideas** — `research_idea(action="derive")`
+
+When a human checkpoint is triggered, the system auto-generates a checkpoint brief. The brief provides full context for the human decision. If you need to regenerate or view it, use `research_checkpoint_brief(action="generate"|"read")`.
+
+---
+
+## Step 9: Handle User Decision
+
+Based on user response:
+
+- **Selected**: Mark and advance state:
+  ```
+  research_idea(action="select", id="idea_XXX")
+  research_state(action="advance", target_phase="ground",
+    summary="Grounding novelty for: <idea title>",
+    reason="User selected idea_XXX from explore round",
+    refs_idea="idea_XXX")
+  ```
+
+- **Rejected**: `research_idea(action="reject", id="idea_XXX")`
+
+- **Parked**: `research_idea(action="park", id="idea_XXX")`
+
+- **Combine**: `research_idea(action="derive", title="Combined approach", derived_from=[...], content="...")`
+
+- **Need more exploration**: Route to `idea-refine` skill. Only restart from Step 1 if anchor fundamentally changed.
+
+---
+
+## Step 10: Knowledge Writeback
+
+1. **Update LIT_CONTEXT.md**: Compress survey findings into shared literature context
+2. **Verify paper coverage**: `research_wiki(action="stats")`
+3. **Record rejected ideas**: Add to banlist in LIT_CONTEXT.md
+4. **Record milestone**: `research_timeline(action="append_free_event", event_type="milestone", summary="Idea exploration complete: X ideas generated, Y survived, Z selected.")`
+5. **Persist insights**: `research_wiki(action="upsert")` for transferable insights
+
+---
+
+## Idea Operators Reference
+
+When generating ideas, apply one or more of these operators on a strong observation:
+
+1. **Reveal hidden state**: Add the measurement or probe that would expose the suspected latent factor
+2. **Repair interface mismatch**: Align representation, planner, verifier, or objective when they optimize different things
+3. **Add re-grounding**: Compare open-loop execution against periodic correction or refreshed observations
+4. **Split regimes**: Replace one averaged claim with a map of where the method helps, is neutral, or hurts
+5. **Challenge the metric**: Test whether the benchmark score hides the true failure mode
+6. **Transfer the causal primitive**: Borrow only the core mechanism from another field, not the whole surface method
+7. **Invert the claim**: Ask when the celebrated mechanism should fail, saturate, or become unnecessary
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after survey, after wonder extraction, after novelty check, after reviewer review, and at final checkpoint
+- **guided**: Pause at the final checkpoint (Step 8) only
+- **autonomous**: Run full workflow, present final ranked list
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| No wonder signals found | Literature may be too sparse — broaden survey or switch to `lit-knowledge` skill |
+| No ideas survive novelty check | Report with full banlist. Suggest: broaden scope, combine partial ideas, re-survey |
+| User rejects all ideas | Ask for specific feedback, return to Step 1 with adjusted scope and updated anchor |
+| All ideas are incremental | The anchor may need reframing — the problem itself may not have a high-impact angle |
+| Pilot experiments fail | Mark as inconclusive, rely on novelty + feasibility scores |
+| Reviewer and main agent disagree | Present both assessments for user adjudication |
+| Problem Anchor drifts | Flag immediately. Present original and drifted direction for user choice |
+
+---
+
+## Rollback Entry Point
+
+When re-entered from a later phase rollback:
+
+1. Read `research_state` to understand why we're back
+2. Read existing ideas and survey — these are still valid
+3. Read the banlist — add the failed direction
+4. Start from Step 2 (wonder extraction) with the new information, not from scratch
+5. The Problem Anchor may need updating — check with user

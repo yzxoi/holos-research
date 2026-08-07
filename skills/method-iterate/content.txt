@@ -1,0 +1,447 @@
+# Method Iterate — Feedback-Driven Plan Revision and Polishing
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL files under `.research/`** — never write to project root.
+2. **Plans via `research_plan(action="create")`** with `supersedes` — writes to `.research/plans/`.
+3. **Reviews via `research_plan(action="review")`** — not free-text files.
+4. **Subagents return text, not files.**
+5. **This is NOT method-design.** Do not re-run gap analysis or route selection. The direction is set. This skill polishes an existing plan based on feedback.
+6. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, naming conventions.
+7. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+8. **Git commit research artifacts** after modifying .research/ files.
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: design` OR `phase: realize`
+- At least one plan exists (from `method-design`)
+- Feedback exists: user feedback, reviewer feedback, or experiment-phase rollback feedback
+
+## Output contract
+
+By the end of this skill:
+
+- A new plan version exists with status `active` (superseding the old one)
+- The revision is documented with anchor check + simplicity check
+- Review records trace the refinement history
+- The plan is ready for experiment-cycle, or for another iteration round
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- Read current state via `research_state(action="overview")` before acting
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- When a human checkpoint is triggered, the system auto-generates a brief; use `research_checkpoint_brief(action="read")` to view it
+- Create new plan via `research_plan(action="create")` with `supersedes` — never edit plans in place
+- Check for anchor drift before applying any revision
+
+### Forbidden
+- Do not skip anchor drift check — severe drift must be presented to user
+- Do not re-run gap analysis or route selection — this is polishing, not redesign
+- Do not accept regression without reverting to previous plan version
+
+### Checkpoints
+- iteration_rationale_recorded
+- changes_validated
+
+---
+
+## DAG Template
+
+```
+dagwrite({ nodes: [
+  { id: "load",     content: "Load current plan, feedback, anchor",            status: "pending", deps: [] },
+  { id: "diagnose", content: "Classify feedback, check anchor drift",           status: "pending", deps: ["load"] },
+  { id: "revise",   content: "Write revised plan (supersede)",                  status: "pending", deps: ["diagnose"] },
+  { id: "review",   content: "Adversarial review of revised plan",              status: "pending", deps: ["revise"], assign: "critic" },
+  { id: "converge", content: "Check score convergence, decide next",            status: "pending", deps: ["review"] }
+]})
+```
+
+For multi-round iteration, the DAG extends dynamically:
+```
+dagwrite({ nodes: [
+  ...existing completed nodes...,
+  { id: "revise-r2",   content: "Round 2 revision based on review feedback",  status: "pending", deps: ["converge"] },
+  { id: "review-r2",   content: "Round 2 adversarial review",                 status: "pending", deps: ["revise-r2"], assign: "critic" },
+  { id: "converge-r2", content: "Round 2 convergence check",                  status: "pending", deps: ["review-r2"] }
+]})
+```
+
+---
+
+## Constants — Read from `research_state(action="read")` config
+
+- `config.design.max_review_rounds` (default: 5) — Maximum review-revise iterations within a single method-iterate invocation
+- `config.design.score_threshold` (default: 7) — Minimum overall score to declare plan ready
+- `config.design.max_primary_claims` (default: 2) — Prefer one dominant + at most one supporting
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="method iteration status")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## Step 0: Load Context
+
+### 0.1 Read state and current plan
+
+```
+research_state(action="read")
+research_plan(action="list")
+```
+
+Identify the active (or most recent) plan. Read its `.md` for the full method proposal.
+
+### 0.2 Read the idea and anchor
+
+From `focus.refs.idea`, read the selected idea's `.md`. Read `anchor` from state. These are immutable references — the revision must stay aligned.
+
+### 0.3 Load feedback
+
+The feedback driving this iteration comes from one of:
+
+**User feedback** — parsed from `$ARGUMENTS`:
+- "Change the loss function to X"
+- "This module is too complex, simplify"
+- "I want to add component Y"
+- "The training recipe doesn't make sense"
+
+**Experiment-phase rollback** — if `research_state` shows a redirect from `experiment` to `design`:
+- Read the rollback reason from `focus.reason`
+- Read failed/completed experiment records: `research_experiment(action="list")`
+- Read experiment `.md` files for failure analysis
+- The experiment results are concrete evidence — they override theoretical assumptions
+
+**Reviewer feedback** — from prior `research_plan(action="review")` records
+
+### 0.4 Check for prior iteration rounds
+
+```
+research_timeline(action="read", type="plan.*", last=10)
+```
+
+If prior method-iterate rounds exist, read the score history to understand trajectory.
+
+```
+dagpatch({ nodes: [{ id: "load", status: "completed" }] })
+```
+
+---
+
+## Step 1: Diagnose and Classify Feedback
+
+### 1.1 Anchor drift check
+
+Before any revision, verify: would the requested changes move the plan away from the anchor?
+
+- **No drift**: the changes refine the mechanism within the same problem scope → proceed
+- **Mild drift**: the changes slightly expand scope → flag but proceed with caveat
+- **Severe drift**: the changes fundamentally change what problem is being solved → present to user, do NOT silently revise
+
+### 1.2 Classify each feedback item
+
+For each piece of feedback, classify:
+
+| Category | Meaning | Action |
+|----------|---------|--------|
+| **mechanism** | Change the core method (loss, architecture, signal) | Revise method section |
+| **simplification** | Remove or merge components | Reduce complexity budget |
+| **addition** | Add new component | Check against `config.design.max_primary_claims` and complexity budget |
+| **recipe** | Change training procedure (data, schedule, hyperparams) | Revise training plan |
+| **scope** | Narrow or widen claims | Revise contribution focus + validation sketch |
+| **feasibility** | Adapt to resource constraints | Revise compute estimate + method if needed |
+| **experiment-driven** | Method change motivated by experiment results | Revise with empirical evidence |
+
+### 1.3 Conflict detection
+
+If multiple feedback items conflict (e.g., "simplify" + "add component X"), resolve:
+- Experiment-driven feedback takes priority over theoretical preference
+- User explicit instructions take priority over reviewer suggestions
+- Simplification takes priority over addition unless the addition is experiment-justified
+
+```
+dagpatch({ nodes: [{ id: "diagnose", status: "completed" }] })
+```
+
+---
+
+## Step 2: Write Revised Plan
+
+### 2.1 Create new plan version
+
+```
+research_plan(action="create",
+  title="Method proposal v[N+1]",
+  idea="idea_XXX",
+  supersedes="plan_XXX")
+```
+
+### 2.2 Write the full revised proposal
+
+Create the revised plan with full content via `research_plan(action="create", ...)`. Plans are immutable — always supersede, never edit in place. The structure mirrors method-design's format with revision metadata prepended:
+
+```markdown
+## Revision Context (Round N)
+
+### Feedback Source
+- [user / experiment rollback / reviewer]
+
+### Anchor Check
+- Anchor: [verbatim from state]
+- Drift assessment: [none / mild / severe]
+- Rejected suggestions: [any feedback items rejected as drift]
+
+### Simplicity Check
+- Previous plan complexity: [N trainable components, M losses]
+- This revision: [what changed]
+- Net complexity delta: [simpler / same / more complex — justify if more complex]
+
+### Changes Made
+1. [Change]: [reason] → [impact on core claim]
+2. [Change]: [reason] → [impact on core claim]
+
+---
+
+## Problem Anchor
+[Verbatim from state]
+
+## Technical Gap
+[Unchanged unless experiment evidence invalidated assumptions]
+
+## Method Thesis
+[Updated one-sentence thesis]
+
+## Contribution Focus
+[Updated dominant + optional supporting]
+
+## Proposed Method
+[Full updated method — not incremental patches, complete rewrite of method section]
+
+### Complexity Budget
+[Updated]
+
+### System Overview
+[Updated]
+
+### Core Mechanism
+[Updated]
+
+### Training Plan
+[Updated]
+
+### Inference Path
+[Updated]
+
+### Failure Modes
+[Updated, especially if experiment-driven changes]
+
+### Novelty Argument
+[Updated]
+
+## Claim-Driven Validation Sketch
+[Updated based on revised method]
+
+## Compute & Timeline Estimate
+[Updated]
+```
+
+### 2.3 Move to refining
+
+```
+research_plan(action="refine", id="plan_YYY")
+```
+
+```
+research_timeline(action="append_free_event", event_type="decision",
+  summary="Method revised v[N+1]: [key change]. Supersedes plan_XXX.",
+  event_refs=["plan_YYY", "plan_XXX"])
+```
+
+```
+dagpatch({ nodes: [{ id: "revise", status: "completed" }] })
+```
+
+---
+
+## Step 3: Adversarial Review
+
+Deploy the critic with full context. The reviewer is stateless — include everything. Follow the reviewer independence protocol from `peer-review`: fresh task per round, no prior round findings in the prompt, cross-model for high-stakes reviews.
+
+```
+task(subagent_type="critic", background=true, dag_node_id="review"):
+  "You are reviewing a REVISED method proposal for a top venue.
+   This is revision round N — the plan was changed because: [feedback summary].
+
+   Read the Problem Anchor first. If the revision caused drift, flag it.
+
+   PROBLEM ANCHOR:
+   [paste anchor]
+
+   PREVIOUS VERSION SCORE: [paste score history]
+   WHAT CHANGED: [paste changes summary]
+
+   === REVISED PROPOSAL ===
+   [paste full revised plan .md]
+   === END PROPOSAL ===
+
+   Score these dimensions (1-10):
+   1. Problem Fidelity (15%): Does the method still attack the original bottleneck?
+   2. Method Specificity (20%): Concrete enough to implement?
+   3. Contribution Quality (20%): One dominant mechanism claim, real novelty, no sprawl?
+   4. Frontier Leverage (10%): Uses current primitives appropriately?
+   5. Impact Potential (15%): Would other researchers build on this?
+   6. Feasibility (10%): Can this be built with stated resources?
+   7. Validation Focus (5%): Experiments minimal but sufficient?
+   8. Venue Readiness (5%): Sharp and timely?
+
+   OVERALL SCORE (1-10): Weighted average.
+
+   For each dimension < 7: specific weakness + concrete fix + priority (CRITICAL/IMPORTANT/MINOR).
+
+   Also:
+   - Simplification Opportunities: NONE if already tight.
+   - Drift Warning: NONE or explanation.
+   - Regression Check: Did the revision make anything WORSE compared to the previous version?
+   - Verdict: READY / REVISE / RETHINK"
+```
+
+Record the review:
+```
+research_plan(action="review", id="plan_YYY",
+  reviewer="critic",
+  verdict="pass|revise|rethink",
+  scores={problem_fidelity: N, method_specificity: N, contribution_quality: N,
+    frontier_leverage: N, impact_potential: N, feasibility: N,
+    validation_focus: N, venue_readiness: N, overall: N},
+  summary="...",
+  action_items=[...],
+  review_body="...")
+```
+
+---
+
+## Step 4: Convergence Check
+
+### 4.1 Stop conditions
+
+**Ready**: overall score ≥ `config.design.score_threshold` and verdict is READY and no unresolved drift → proceed to Step 5.
+
+**Iterate**: score improved but not yet ready and rounds < `config.design.max_review_rounds` → extend DAG and loop back to Step 2 with reviewer feedback as input.
+
+**Stalled**: score did not improve for 2 consecutive rounds → present to user with honest assessment:
+- "The plan has plateaued at X/10. The remaining weakness is [Y]. Options: accept as-is, try a fundamentally different approach, or provide specific guidance."
+
+**Rethink**: verdict is RETHINK → the revision made things worse or the direction is fundamentally off. Consider:
+- Reverting to the previous plan version
+- Rollback to `ground` if the contribution is unclear
+- Rollback to `explore` if the direction is weak
+
+### 4.2 Score tracking
+
+Maintain a score history across rounds. If extending the DAG for another round, include the score trajectory in the next reviewer prompt.
+
+```
+dagpatch({ nodes: [{ id: "converge", status: "completed" }] })
+```
+
+---
+
+## Step 5: Finalize
+
+### 5.1 Approve and activate
+
+```
+research_plan(action="approve", id="plan_YYY", approved_by="user|agent")
+research_plan(action="activate", id="plan_YYY")
+```
+
+### 5.2 Decision routing
+
+**If experiment-cycle is the next phase** (normal forward flow):
+```
+research_state(action="advance", target_phase="experiment",
+  summary="Executing experiment matrix for: [plan title]",
+  reason="Plan approved after N iteration rounds. Score: X/10.",
+  refs_idea="idea_XXX", refs_plan="plan_YYY")
+```
+
+**If returning to experiment** (after a design rollback):
+```
+research_state(action="advance", target_phase="experiment",
+  summary="Resuming experiments with revised method",
+  reason="Plan revised based on experiment feedback. Key change: [X]. Score: Y/10.",
+  refs_idea="idea_XXX", refs_plan="plan_YYY")
+```
+
+### 5.3 Record milestone
+
+```
+research_timeline(action="append_free_event", event_type="milestone",
+  summary="Method iterated to v[N]: [one-line thesis]. Score: X/10 after M rounds.",
+  event_refs=["idea_XXX", "plan_YYY"])
+```
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after diagnosis (Step 1) if anchor drift detected. Pause after revision (Step 2) to confirm changes. Pause at convergence (Step 4) each round.
+- **guided**: Pause at convergence (Step 4) only when ready or stalled.
+- **autonomous**: Run full review loop. Pause only on stall (2 rounds no improvement) or rethink verdict.
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| No existing plan | Redirect to method-design: `skill(name="method-design")` |
+| Experiment feedback contradicts plan assumptions | This is the most valuable feedback. Revise the plan with empirical evidence taking priority. |
+| Reviewer and user feedback conflict | User feedback takes priority. Record the disagreement. |
+| Score regression after revision | Revert: reactivate the previous plan. Analyze why the revision hurt. |
+| Anchor fundamentally needs changing | Do not change silently. Block: `research_state(action="block", blocked_on="Anchor update needed based on [evidence]")` |
+| MAX_ROUNDS without ready | Present best version. User decides: accept, continue manually, or rollback. User can increase `config.design.max_review_rounds` to continue. |
+| Context compaction | Reload from plan `.md` files + `research_state(action="read")`. The plan `.md` is the full checkpoint. |
+
+---
+
+## Rollback Entry Points
+
+### From experiment (method doesn't work)
+
+1. Read experiment failure analysis from experiment `.md` files
+2. The experiment results are hard evidence — they override theoretical expectations
+3. Focus revision on the specific mechanism that failed, not the whole plan
+4. If the failure is fundamental → consider rollback to explore
+
+### From compose (evidence doesn't support claims)
+
+1. Read which claims are unsupported
+2. Narrow the claims in the validation sketch rather than adding complexity
+3. May need to simplify the method to match what the evidence actually shows
+
+### From venue-cycle (reviewer demands method changes)
+
+1. External reviewer feedback has high priority
+2. Re-enter at Step 1 with reviewer comments as feedback
+3. Track: which external reviewer concerns map to which plan sections

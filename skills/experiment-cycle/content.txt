@@ -1,0 +1,1004 @@
+# Experiment Cycle — Execute, Monitor, Collect, Diagnose, Supplement
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL files under `.research/`** — never write to project root.
+2. **Experiments via `research_experiment(action="register")`** — writes to `.research/experiments/`. **NEVER run training/eval without registering first.** Quick registration: `research_experiment(action="register", title="...", idea_ref="...", plan_ref="...")`. Register BEFORE running code, `research_experiment(action="complete", id="exp_XXX", metrics={...})` after. Unregistered experiments break pipeline traceability and claim evidence chains.
+3. **Commit code before submitting any experiment** — see `references/git-discipline.md`.
+4. **Subagents return text, not files.** Each dispatch includes file guidance for the agent type.
+5. **Follow AGENTS.md at project root** — directory structure, naming, no v1/v2/v3, use venv, TDD.
+6. **Long-running tasks use nohup + agenda_watch** — NEVER bash-wait. Logs go to `logs/`.
+7. **Gate 1 (Code Gate)**: After writing/modifying experiment code, dispatch `inspector` subagent to audit code quality BEFORE git commit. Fix all issues and repeat until clean.
+8. **Record results immediately** — when an experiment completes, call `research_experiment(complete)` with metrics.
+9. **Ingest knowledge** — relevant papers, insights, and decisions → `research_wiki` and `research_timeline`.
+10. **Gate 2 (Design Gate)**: Declare red-lines at registration. Dispatch `auditor` subagent before registration AND after completion to verify R1-R7. Experiment cannot complete until all red-lines pass.
+11. **Evidence authenticity**: Every experiment must declare its authenticity level (prototype/pilot/evidence). Prototypes and pilots cannot support claims. Only evidence-grade experiments can support claims. Prototypes can be marked complete for reference but carry no evidentiary weight.
+12. **NO MID-BATCH PIVOT**: When an experiment batch is running, you will inevitably discover new ideas, alternative approaches, or interesting side results. **Do NOT act on them immediately.** Instead: (a) Record the idea as a journal note via `research_journal(action="append", kind="opportunity_spotted", note="...")` — this preserves it without derailing. (b) Finish ALL registered experiments in the current batch first (complete or fail each one). (c) Only AFTER the batch is fully resolved, review accumulated opportunity notes and decide whether to iterate within experiment phase or formally redirect to an earlier phase (design/ground/explore) via `research_state(action="redirect")`. Mid-batch pivots are the #1 cause of direction drift and unfinished experiments.
+- **Every session ends with** `research_state(action="brief")` — ensures state is persisted and monitor reflects current status
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- [ ] Run L1-L6 diagnosis before any method-failure pivot
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- [ ] RQG evaluated before promote to compose
+- [ ] DiagnosisReport completed with evidence for each level
+- [ ] At least min_seeds or explicit justification
+- [ ] Record used_wiki_refs in phase_run.context_refresh
+
+### Forbidden
+- [ ] Do not pivot to design without L1-L6 completion
+- [ ] Do not promote weak results as strong claims
+- [ ] Do not abandon experiments without diagnosis
+- [ ] Do not skip anti-fabrication probes
+
+### Checkpoints
+- [ ] resource_commitment: Before large compute runs
+- [ ] paper_ambition: Confirm claim strength before compose
+- [ ] pivot_confirmation: Before any outer pivot (experiment→design/ground)
+
+---
+
+Load references as needed:
+- `references/git-discipline.md` — code traceability and commit protocol
+- `references/auto-retry.md` — automated failure recovery (OOM, NaN, preemption, stale process)
+- `references/python-env.md` — Python environment management with uv (local + Inspire)
+- `references/inspire-compute.md` — workspace selection, image building, pre-build strategy
+
+---
+
+## DAG Template
+
+Create this DAG at skill entry. Adjust based on experiment count and backend.
+
+```
+dagwrite({ nodes: [
+  { id: "load",         content: "Load plan, check resources, git discipline",      status: "pending", deps: [] },
+  { id: "image",        content: "Ensure project-specific image exists and is registered", status: "pending", deps: ["load"] },
+  { id: "audit-design", content: "Auditor checks experiment design: metrics, baselines, data splits, red-lines, domain constraints", status: "pending", deps: ["load"], assign: "auditor" },
+  { id: "authenticity",  content: "Verify evidence authenticity: real data, official evaluators, full scale for all evidence-grade experiments", status: "pending", deps: ["audit-design"] },
+  { id: "register",     content: "Register experiments with red-lines declared",     status: "pending", deps: ["authenticity"] },
+  { id: "impl-code",    content: "Implement experiment code",                        status: "pending", deps: ["register"], assign: "master" },
+  { id: "inspect-code", content: "Inspector audits code: readability, naming, dead code, project organization, no v1/v2/v3", status: "pending", deps: ["impl-code"], assign: "inspector" },
+  { id: "fix-code",     content: "Fix inspector issues and re-check",                status: "pending", deps: ["inspect-code"] },
+  { id: "submit",       content: "Git commit + submit to compute platform",          status: "pending", deps: ["fix-code", "image"] },
+  { id: "monitor",      content: "Initial health check + set watches",               status: "pending", deps: ["submit"] },
+  { id: "collect",      content: "Collect results as experiments complete",          status: "pending", deps: ["monitor"] },
+  { id: "audit-results",content: "Auditor verifies R1-R7 red-lines for completed experiments", status: "pending", deps: ["collect"], assign: "auditor" },
+  { id: "record",       content: "Record complete/fail with notes and red-line status", status: "pending", deps: ["audit-results"] },
+  { id: "analyze",      content: "Cross-experiment comparison + statistical tests",  status: "pending", deps: ["record"] },
+  { id: "supplement",   content: "Supplement missing experiments if needed",          status: "pending", deps: ["analyze"] },
+  { id: "decide",       content: "Advance to compose / iterate / rollback",            status: "pending", deps: ["supplement"] }
+]})
+```
+
+If no supplements needed, set `supplement` to `cancelled` and link `decide` directly to `audit-results`.
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: experiment`
+- At least one plan is `active` (via `research_plan(action="activate")`)
+- The active plan's `.md` contains a claim-driven validation sketch with:
+  - Experiment matrix (sanity / baselines / main / ablations / robustness / stress)
+  - Kill set and sufficient set definitions
+  - Compute budget estimate
+
+## Output contract
+
+By the end of this skill:
+
+- All planned experiments are registered via `research_experiment`
+- Each experiment has a status: `completed` / `failed` / `invalidated` / `stopped`
+- Completed experiments have metrics, artifacts, and red-line audit results recorded
+- Failed experiments have `failure_reason` documented
+- Result analysis and integrity review are recorded
+- The evidence package is sufficient to proceed to `compose` phase (or the skill has recommended rollback)
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+Before beginning any work in this phase:
+
+1. **Load core state**:
+   ```
+   research_state(action="read")
+   ```
+   - Load `state.focus`, `active_phase_run`, and `anchor`
+   - Identify active plan from `focus.refs.plan`
+   - Identify existing experiments from `focus.refs.experiments`
+
+2. **Load relevant Plan and StorySpine**:
+   - Read active plan's `.md` — claim-driven validation sketch, kill/sufficient sets, compute budget
+   - Read `positioning/idea_*.story.yaml` for grounded StorySpine
+   - Read `positioning/story_spine_*.yaml` for StorySpine (grounded_angle provides the paper path direction)
+
+3. **Load experiment state**:
+   ```
+   research_experiment(action="list")
+   ```
+   - If experiments already exist (from prior cycle or rollback), assess status
+   - Do NOT re-register existing experiments
+
+4. **Load wiki context**:
+   ```
+   research_wiki(action="query")
+   ```
+   - Read relevant `papers/{slug}.md` for benchmark/evaluation references
+   - Read wiki edges for method dependencies
+
+5. **Record wiki refs**:
+   - Record all `used_wiki_refs` in `phase_run.context_refresh`
+
+6. **Check skill checklist rules**:
+   - Review Must/Forbidden/Checklists below
+   - Record `checked_skill_rules` in `phase_run.context_refresh`
+
+7. **Drift check**:
+   - Verify experiment plan still addresses `anchor` and active plan's claims
+   - If drift detected, flag before proceeding
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","plan","experiments","wiki"], checked_skill_rules: true})
+```
+
+---
+
+## Step 0: Load Context and Check Resources
+
+### 0.1 Read state and plan
+
+```
+research_state(action="read")
+research_plan(action="list")
+```
+
+Identify the active plan. Read its `.md` — especially:
+- Claim-driven validation sketch (what experiments are needed and why)
+- Kill set / sufficient set definitions
+- Compute budget
+
+### 0.2 Check existing experiments
+
+```
+research_experiment(action="list")
+```
+
+If experiments already exist (e.g. from a prior cycle or rollback), assess their status. Do NOT re-register existing experiments — continue from where the previous cycle left off.
+
+### 0.3 Check resources
+
+```
+inspire_status()
+```
+
+If using the Inspire platform:
+- Verify compute group and spec options — see `references/inspire-compute.md` for selection policy
+- Check remaining budget
+- Read `ASSETS.md` for platform-specific constraints (offline spaces, data paths)
+
+### 0.4 Git discipline check
+
+**Load `references/git-discipline.md` for the full git protocol.**
+
+This is a hard gate. Do NOT proceed to registration without passing these checks.
+
+#### Check 1: Git is initialized
+
+```bash
+git status
+```
+
+If git is not initialized: `research_init` should have done this. If missing, run `git init` now and set up `.gitignore`.
+
+#### Check 2: Working tree is clean
+
+```bash
+git status --porcelain
+```
+
+If there are uncommitted changes:
+1. Review them: `git diff`
+2. Are they related to the experiments about to run?
+   - **Yes**: Stage and commit. Use message format: `experiment: code for <description>`
+   - **No**: Stash them: `git stash push -m "unrelated changes before exp batch"`
+   - **Uncertain**: Ask the user.
+
+**⚠️ HARD RULE: Never submit an experiment with uncommitted code changes.** The `code_commit` hash must reflect the code that will execute. If you skip this, experiment reproducibility is broken.
+
+#### Check 3: Record commit hash
+
+```bash
+git rev-parse HEAD
+```
+
+Store this hash. It will be passed to every `research_experiment(action="register", code_commit="<hash>")` in this batch.
+
+#### Check 4: Branch awareness
+
+```bash
+git branch --show-current
+```
+
+If NOT on `main`:
+- Record the branch name in experiment notes
+- Experiment branches are encouraged for code variants
+- Ensure the branch is committed and pushed if shared
+
+If the plan requires a code change that diverges from the current approach (e.g. trying a method variant), create a branch BEFORE making changes:
+
+```bash
+git checkout -b exp/<variant-description>
+# make changes
+git add -A && git commit -m "experiment: <variant> — <description>"
+```
+
+#### After experiments complete
+
+Commit the `.research/` state changes:
+
+```bash
+git add .research/experiments/ .research/state.yaml .research/timeline.jsonl
+git commit -m "experiment: results for exp_XXX-exp_YYY — <key finding>"
+```
+
+This ensures the research control plane is tracked alongside the code.
+
+### 0.5 Image Readiness Gate
+
+**This is a BLOCKING GATE. No experiment can submit until this step passes.**
+
+A research project that spans weeks/months MUST run on a single project-specific Docker image with all dependencies baked in. Reusing generic platform images (`pytorch2.5-cuda12.4`, etc.) breaks reproducibility — platform images get updated, removed, or silently changed over time, so experiments from last month cannot be rerun.
+
+#### Check 1: Does a project image already exist?
+
+```
+inspire_images(search="<your-project-slug>")
+```
+
+Also check `ASSETS.md` for the recorded project image. If `ASSETS.md` records an image AND `inspire_images` confirms it's registered → skip to Step 0.6.
+
+#### Check 2: If no project image exists, build one now
+
+Follow `references/inspire-compute.md` § Image Building. Pick based on environment:
+
+- **Dedicated dev machine with Docker daemon running** → `docker build`
+- **Shared cluster / no daemon access / cgroup permission errors** → `buildah bud --isolation chroot` (the normal case on HPC/GPU shared machines)
+
+Build → push → register on platform (镜像管理 → 新建镜像) → record in `ASSETS.md` with tag and key packages.
+
+#### Check 3: Exception for one-off trivial tests
+
+Only if the experiment is a single trivial check (e.g. `python -c "import torch; print(torch.cuda.is_available())"`) may a platform image be used. Anything registered via `research_experiment(action="register")` requires a project image.
+
+**Mark the `image` DAG node completed only after the image is built, pushed, registered, and recorded in `ASSETS.md`.**
+
+### 0.6 Design Audit (Gate 2 — Pre-registration)
+
+Before registering experiments, dispatch auditor to validate the experiment design:
+
+```
+task(subagent_type="auditor", description="Pre-registration design audit",
+  prompt="Audit the experiment design for the active plan.
+
+  Read:
+  - .research/plans/{active_plan}.md (experiment matrix, claim-driven validation)
+  - .research/ideas/{idea}.md (contribution claims, positioning)
+
+  Check:
+  1. Are evaluation metrics clearly defined and appropriate for the claims?
+  2. Are baselines fair and sufficient? Any missing baselines?
+  3. Is the data split documented? Is it appropriate for the task?
+  4. Are domain-specific constraints identified? (e.g., backbone model, tokenizer, hardware)
+  5. Which red-lines (R1-R7) apply to these experiments?
+  6. Is the experiment matrix complete (sanity → baselines → main → ablations)?
+  7. Are kill/sufficient criteria clearly defined?
+  8. Are benchmarks appropriate and current? Do they directly test the core claims?
+  9. Is the experimental configuration adequate? Would any config choice (token limits,
+     batch sizes, model scale, output truncation) undermine the credibility of results?
+  10. Are all five experiment design dimensions from the plan adequately addressed?
+         (method, benchmark/dataset, baselines, evaluation, infrastructure)
+     11. Evidence authenticity: Is each planned experiment using real data, official
+            evaluators, and full-scale benchmarks? Flag any synthetic data, homemade
+            evaluators, or toy subsets as PROTOTYPE — not evidence.
+
+  Report: PASS/ISSUES for each dimension. For issues, provide concrete fixes.")
+```
+
+Fix all issues before proceeding to registration. Mark `audit-design` DAG node completed only after all issues are resolved.
+
+---
+
+## Step 1: Register Experiments
+
+Each experiment produces evidence. Before registering, classify its authenticity:
+
+prototype — synthetic data, homemade evaluator, tiny subset. For debugging only. Cannot be marked complete.
+pilot — real data at reduced scale. For direction validation. Cannot support claims.
+evidence — full benchmark, official evaluator, complete scale. Can support claims.
+
+Only evidence-grade experiments can support claims in the paper. Prototypes and pilots are valuable for debugging and validation but do not constitute proof.
+
+From the plan's experiment matrix, register each experiment:
+
+```
+research_experiment(action="register",
+  title="Main method — seed 42",
+  group="main",
+  plan="plan_002",
+  idea="idea_XXX",
+  backend="inspire",
+  authenticity="evidence",
+  redlines=["R1_metric_immutability", "R3_no_data_leakage", "R4_honest_reporting", "R5_dataset_integrity", "R6_reproducibility"],
+  domain_constraints=["Must use Qwen2.5-7B backbone for fair comparison"],
+  hyperparameters={learning_rate: 1e-4, batch_size: 128, seed: 42},
+  content="## Setup\n\nBaseline comparison with learning_rate=1e-4.\n\n## Success Criteria\n\nBeat baseline PPL by >1.0 point.")
+```
+
+### Registration order
+
+Follow the plan's priority structure:
+
+| Group | Priority | Register when |
+|-------|----------|---------------|
+| `sanity` | 1st | Always — verify basic assumptions first |
+| `baselines` | 2nd | Always — needed for comparison |
+| `main` | 3rd | After sanity passes |
+| `ablations` | 4th | After main shows positive signal |
+| `robustness` | 5th | After main results are stable |
+| `stress` | 6th | Only if time/budget permits |
+
+For multi-seed experiments, register each seed as a separate experiment:
+```
+research_experiment(action="register", title="Main method — seed 42", ...)
+research_experiment(action="register", title="Main method — seed 123", ...)
+research_experiment(action="register", title="Main method — seed 456", ...)
+```
+
+### 1.5 Code Gate (Gate 1 — inspector)
+
+After writing experiment code, BEFORE git commit:
+
+1. Dispatch inspector subagent to audit code quality:
+
+```
+task(subagent_type="inspector", description="Code audit for experiment code",
+  prompt="Audit the experiment code for quality issues.
+
+  Check:
+  - Readability: self-explanatory names, coherent single-purpose logic
+  - Unnecessary indirection: wrapper layers, passthrough functions, adapter chains
+  - Structural density: file bloat, mixed responsibilities, dead code
+  - Hygiene: unused imports, debug prints, commented-out code, no v1/v2/v3 files
+  - Project organization: code in {package}/, scripts in scripts/, configs in configs/
+  - Naming: variables, functions, files all descriptive and consistent
+
+  Report ALL issues found. Do NOT fix them — just list them.")
+```
+
+2. Fix ALL issues reported by inspector
+3. Re-run inspector until clean (0 issues)
+4. Only then proceed to git commit and submission
+
+Mark `inspect-code` DAG node completed only after inspector returns clean. If issues found, iterate through `fix-code` → re-run `inspect-code` until clean.
+
+---
+
+## Step 2: Submit to Compute Platform
+
+### 2.0 Parallel-by-Default (MANDATORY)
+
+Before submitting, identify ALL opportunities for parallel execution. Parallel-by-default applies within each experiment group — all experiments in the same group can run simultaneously. Sequential ordering applies between groups (sanity → baselines → main → ablations → robustness → stress).
+
+What always runs in parallel (within the same group):
+- All experiments in the same group (all sanity experiments together, all baselines together, etc.)
+- Multiple seeds of the same experiment configuration
+- Data preprocessing while experiments run
+- API calls (batch or concurrent dispatch)
+- Subagent dispatches (scholar, scout, critic, methodologist, auditor, inspector)
+
+What must run sequentially (between groups):
+- Later groups depend on earlier group results (main depends on baselines, ablations depend on main)
+- Code changes between experiments (experiment B requires code changes based on experiment A's results)
+- Resource constraints (GPU quota limits concurrent jobs)
+
+If experiments are running sequentially within the same group, ask: "Why can't these run together?"
+
+### 2.1 Workspace Decision (MANDATORY)
+
+**BEFORE submitting: Load `references/inspire-compute.md`** for the full workspace selection policy, image building strategy, and pre-build philosophy.
+
+**Full policy: `references/inspire-compute.md`. Four rules:**
+
+- **GPU** → run `inspire_status()`, pick from your project's available GPUs (prefer higher VRAM for large models, any idle GPU for pilots)
+- **CPU** → Local `bash` if < 30 min, `CPU资源空间` (low priority) if longer, HPC only for multi-node
+- **Image must be pre-built** — all deps baked into the image. Never `pip install` at runtime.
+- **Instance type** → `inspire_submit` (training task) for experiments. Never `inspire_notebook`.
+
+### 2.2 Inspire Backend (GPU training)
+
+```
+# Single-GPU pilot (has internet):
+inspire_submit(
+  name="exp_007",
+  command="source /opt/conda/etc/profile.d/conda.sh && conda activate myenv && cd /inspire/hdd/project/{en_name}/code && python train.py --config configs/pilot.yaml --seed 42 2>&1 | tee /inspire/hdd/project/{en_name}/logs/exp_007.log",
+  workspace="<from inspire_status>",
+  compute_group="<from inspire_status>",
+  spec="<from inspire_status>",
+  image="docker.sii.shaipower.online/...",
+  priority=9)
+
+# Large/multi-GPU (offline — NO internet):
+inspire_submit(
+  name="exp_008",
+  command="source /opt/conda/etc/profile.d/conda.sh && conda activate myenv && cd /inspire/hdd/project/{en_name}/code && python train.py --config configs/large.yaml --seed 42 2>&1 | tee /inspire/hdd/project/{en_name}/logs/exp_008.log",
+  workspace="<from inspire_status>",
+  compute_group="<from inspire_status>",
+  spec="<from inspire_status>",
+  image="docker.sii.shaipower.online/...",
+  shm=65536,
+  priority=9)
+```
+
+**Constraints that affect submission correctness:**
+
+- **Do NOT use `inspire_config(commandPrefix=...)`**: Synergy-wide global — changing it breaks ALL other research projects. Write the full `source /opt/conda/etc/profile.d/conda.sh && conda activate myenv && cd /inspire/hdd/project/{en_name}/code && python train.py` inside every `command`.
+- **Offline space** (`分布式训练空间`): NO internet. Commands must NOT contain `pip install`, `git clone`, `wget`, or any network operations. All deps must be in the pre-built image.
+- **Non-interactive shell**: `~/.bashrc` is NOT loaded. Always `source /opt/conda/etc/profile.d/conda.sh && conda activate myenv`.
+- **Shared memory**: Multi-GPU training requires `shm ≥ 65536` (64GB). Single-GPU can use defaults.
+
+See `references/inspire-compute.md` § Common Pitfalls for image domain, log capture, GPU regions, and troubleshooting.
+
+### 2.3 HPC Backend (multi-node CPU only)
+
+For large-scale CPU tasks only. Most CPU work should use local `bash` or `CPU资源空间` — see Step 2.3.
+
+```
+inspire_submit_hpc(
+  name="exp_007-preprocess",
+  entrypoint="source /opt/conda/etc/profile.d/conda.sh && conda activate myenv && bash scripts/preprocess.sh",
+  workspace="高性能计算",
+  compute_group="高性能计算",
+  spec="<hpc spec>",
+  image="docker.sii.shaipower.online/inspire-studio/slurm-xxx:tag")
+```
+
+See `references/inspire-compute.md` for HPC constraints and Slurm image requirements.
+
+### 2.4 CPU Backend — Local or CPU Resource Space
+
+For tasks that don't need GPU:
+
+- **Quick (< 30 min)**: `bash` directly
+- **Long local (> 30 min)**: `nohup` background + log file + `agenda_watch` (saves session resources, survives disconnect)
+- **Longer with internet**: Submit to `CPU资源空间` with low priority (1-3, free tier)
+- **Large-scale offline CPU**: Use HPC (Step 2.3)
+
+```
+# Quick local:
+bash: python train.py --config configs/exp_007.yaml --seed 42
+
+# Long-running local (nohup + agenda):
+bash: PYTHONUNBUFFERED=1 nohup python3 train.py --seed 42 > logs/exp_007.log 2>&1 &
+     Then: agenda_watch(title="Check exp_007", delay="2h",
+            prompt="tail logs/exp_007.log — if done, collect results; if running, set another watch; if crashed, diagnose")
+
+# CPU resource space:
+inspire_submit(
+  name="eval-exp007",
+  command="source /opt/conda/etc/profile.d/conda.sh && conda activate myenv && cd /inspire/hdd/project/{en_name}/code && python eval.py --checkpoint /inspire/.../checkpoints/best.pt 2>&1 | tee /inspire/hdd/project/{en_name}/logs/eval-exp007.log",
+  workspace="CPU资源空间",
+  compute_group="CPU资源-2",
+  spec="<cpu_spec_id>",
+  priority=3)
+```
+
+### 2.5 Manual Backend
+
+Only register the experiment record. The user runs it themselves.
+
+### 2.6 Link job to experiment
+
+After submission, immediately update:
+
+```
+research_experiment(action="schedule", id="exp_XXX", job_id="job-xxx-yyy-zzz")
+```
+
+When the job starts running:
+
+```
+research_experiment(action="start", id="exp_XXX", job_id="job-xxx-yyy-zzz")
+```
+
+After linking all jobs, run an initial health check (Step 3.1-3.3) to verify experiments started correctly, then set up `agenda_watch` for each long-running job (Step 3.4) and yield the session.
+
+### 2.7 Parallel submission rules
+
+**CAN submit simultaneously** (embarrassingly parallel):
+- Same experiment across multiple seeds
+- Same method across multiple datasets (data already available)
+- Independent ablation experiments
+
+**MUST wait for prior completion**:
+- Main experiments after sanity/baselines confirm the setup works
+- Ablations after main experiments show positive signal
+- Evaluation after training completes
+
+### 2.8 First experiment checkpoint
+
+**⏸ CHECKPOINT** (collaborative/guided mode): Confirm the first experiment's compute group, command, image, and resource config. Subsequent same-type experiments can auto-proceed.
+
+Verify: compute group matches GPU/CPU needs, image is pre-built and registered.
+
+---
+
+## Step 3: Monitor Running Experiments
+
+The monitoring flow has two phases:
+1. **Initial check** (Steps 3.1-3.3): Verify experiments launched correctly — run once after submission
+2. **Async watch** (Step 3.4): Set up watches for long-running jobs, then yield the session. You will be woken when status changes.
+
+### 3.1 Status check
+
+For each running experiment:
+
+```
+inspire_jobs(status="running")
+inspire_metrics(job_id="job-xxx", time_range="30m", mode="summary")
+inspire_logs(job_id="job-xxx", lines=50)
+```
+
+### 3.2 Health assessment
+
+| Signal | Healthy | Warning | Critical |
+|--------|---------|---------|----------|
+| GPU utilization | > 70% | 30-70% | < 30% sustained (> 15 min) |
+| Loss trend | Decreasing | Plateaued | Diverging / NaN |
+| Memory usage | < 90% | 90-95% | OOM risk |
+| Training speed | Expected | Slower than expected | Stalled (no output > 10 min) |
+
+### 3.3 Handle critical issues
+
+If critical signals detected:
+
+1. Read full log: `inspire_logs(job_id="job-xxx", lines=500)`
+2. Diagnose: OOM → reduce batch size; NaN loss → check learning rate / gradient clipping; GPU idle → data loading bottleneck
+3. **Report to user immediately** — do not wait for the job to fail
+4. If clearly unrecoverable: `inspire_stop(job_id="job-xxx")`
+
+### 3.4 Watch for experiment completion
+
+For long-running jobs, set up a watch that wakes you when the job finishes:
+
+```
+agenda_watch(
+  title="Monitor exp_007 (job-xxx)",
+  delay=config.experiment.monitor_interval,
+  prompt="Check experiment exp_007 (job-xxx) status via inspire_jobs and inspire_logs.
+    If completed: collect results via inspire_logs, then run red-line audit (Step 4.4) before recording complete.
+    If failed: record failure via research_experiment(action='fail'), check references/auto-retry.md for recovery, and set a new watch if retrying.
+    If still running: set another agenda_watch with delay='30m' to check again.")
+```
+
+**Multiple experiments**: Set one watch per job. Each fires independently when its delay elapses.
+
+```
+agenda_watch(title="Monitor exp_007", delay="30m", prompt="Check exp_007 (job-007)...")
+agenda_watch(title="Monitor exp_008", delay="30m", prompt="Check exp_008 (job-008)...")
+agenda_watch(title="Monitor exp_009", delay="30m", prompt="Check exp_009 (job-009)...")
+```
+
+After being woken up by a watch:
+- Read the prompt context to recall which experiment this is about
+- Check status: `inspire_jobs()` + `inspire_logs(job_id="...", lines=50)`
+- If experiment completed → proceed to **Step 4.1** (collect results), then **Step 4.4** (red-line audit) before marking complete
+- If experiment failed → proceed to **Step 4.2** (record failure), then check `references/auto-retry.md`. After retrying, **set a new watch** for the retry job.
+- If still running → set a new `agenda_watch` with appropriate delay
+- Check if other experiments are still running — if all done, proceed to Step 5
+
+Do NOT use `agenda_schedule` with `type: "every"` for experiment monitoring — that creates a new agent session every interval, wastes tokens, and may not auto-stop.
+
+### 3.5 Detect stuck/idle jobs
+
+If GPU utilization < 10% for > 15 minutes:
+1. Check if in data-loading phase (may be normal)
+2. Check logs for errors or hangs
+3. If truly stuck: stop and report
+4. Update: `research_experiment(action="stop", id="exp_XXX")`
+
+---
+
+## Step 4: Collect Results
+
+### 4.1 Success
+
+When an experiment completes successfully:
+
+```
+inspire_logs(job_id="job-xxx", lines=200)  // read final output
+```
+
+Parse for: final metrics, training duration, any warnings.
+
+```
+research_experiment(action="complete", id="exp_XXX",
+  metrics={
+    wikitext_ppl: {mean: 18.3, std: 0.2},
+    c4_ppl: {mean: 22.1, std: 0.3},
+    training_hours: 12.5
+  },
+  artifacts={
+    log: "/inspire/.../logs/exp_XXX.log",
+    checkpoint: "/inspire/.../checkpoints/exp_XXX/best.pt",
+    tensorboard: "/inspire/.../runs/exp_XXX/"
+  },
+  notes="Converged at epoch 15. PPL improved 2.1 over baseline. Key observation: layer 4-8 attention patterns show strong reuse. Ready for ablation study.")
+```
+
+The `notes` param appends a timestamped analysis section to the .md — no separate edit needed.
+
+### 4.2 Failure
+
+```
+research_experiment(action="fail", id="exp_XXX",
+  failure_reason="OOM at step 8000, batch_size=128 too large for 40GB GPU",
+  notes="Root cause: activation memory spike at layer 28 during backward pass. Fix: reduce batch_size to 64 or enable gradient checkpointing. Will retry as exp_XXX+1.")
+```
+
+The `notes` param records the failure analysis directly — no separate edit needed.
+
+### Diagnosis Levels (L1-L6)
+
+| Level | Name | Focus | Example |
+|-------|------|-------|---------|
+| L1 | Code Bug | Implementation error | Off-by-one, wrong API usage |
+| L2 | Data Bug | Data pipeline issue | Wrong features, data leak |
+| L3 | Eval Bug | Evaluation protocol error | Wrong metric, train/test leak |
+| L4 | Method Limitation | Fundamentally limited on this problem | Model too simple, wrong inductive bias |
+| L5 | Scope Mismatch | Problem formulation doesn't match method | Wrong objective, missing constraints |
+| L6 | Fundamental Impasse | Irreconcilable conflict | Contradictory requirements, infeasible constraints |
+
+L1-L3 → rollback to realize (code/data/eval fixes). L4-L5 → rollback to design (method redesign). L6 → rollback to ground/explore (reformulate).
+
+### Anti-Give-Up Rule (v2.1)
+
+Before any method-failure pivot, the phase run must show:
+1. L1-L6 report completed
+2. At least one implementation review or justification for skipping
+3. At least min_seeds or explicit evidence that more seeds are wasteful
+4. RQG failure is not caused by metric, data, or benchmark mismatch
+5. Human checkpoint confirmed (or waived in autonomous mode)
+
+Diagnosis routing:
+- L1-L3 fail → pivot to realize (code/data/eval bugs)
+- L4-L5 fail → iterate experiment (hp sweep, more seeds)
+- L6 fail → pivot to ground (story/benchmark mismatch)
+- L1-L6 pass but RQG strongly fails → pivot to design (method failure)
+
+### 4.3 Invalidation
+
+When an experiment completes but results are unreliable:
+
+```
+research_experiment(action="invalidate", id="exp_XXX",
+  invalidation_reason="Data leakage detected: validation set overlapped with training due to preprocessing bug in commit abc123")
+```
+
+This is different from failure — the experiment ran to completion but the results cannot be trusted.
+
+### 4.4 Results Audit (Gate 2 — Post-completion)
+
+For each completed experiment, dispatch auditor to verify red-lines BEFORE marking complete:
+
+```
+task(subagent_type="auditor", description="Red-line audit for exp_XXX",
+  prompt="Audit experiment exp_XXX for red-line compliance.
+
+  Read:
+  - .research/experiments/exp_XXX.yaml (declared red-lines, metrics, config)
+  - .research/experiments/exp_XXX.md (experiment notes)
+  - The experiment code and eval scripts
+  - Git log for the experiment period
+
+  For each declared red-line, verify independently:
+  R1: Was the eval metric changed after seeing results?
+  R2: Were eval code changes followed by full re-runs?
+  R3: Any sign of test data leakage?
+  R4: Are all seeds reported? Any cherry-picking?
+  R5: Is the data split documented and consistent?
+  R6: Is the code committed and reproducible?
+  R7: Are domain constraints satisfied?
+
+  Report: PASS/FLAG/VIOLATE for each rule with evidence.")
+```
+
+After auditor returns:
+- Update red-line status: `research_experiment(action="update", id="exp_XXX", redline_status={R1: "passed", ...})`
+- If all pass → mark complete: `research_experiment(action="complete", id="exp_XXX", metrics={...}, notes="...")`
+- If any violated → mark invalidated: `research_experiment(action="invalidate", id="exp_XXX", invalidation_reason="Red-line violation: R3 — test data leakage detected")`
+
+Mark `audit-results` DAG node completed only after all experiments in the batch pass red-line audit.
+
+---
+
+## Step 5: Result Analysis
+
+### 5.1 Cross-experiment comparison
+
+After ≥2 experiments in the same group complete:
+
+```
+research_experiment(action="compare", ids=["exp_001", "exp_005", "exp_007"])
+```
+
+### 5.2 Statistical rigor
+
+Statistical testing thresholds from `config.experiment`: `significance_level` (default: 0.05), `min_seeds` (default: 3).
+
+| Seeds available | Required test | Interpretation |
+|----------------|--------------|----------------|
+| ≥ `config.experiment.min_seeds` | Paired t-test (normal) or Wilcoxon signed-rank (non-normal) | Report p-value and Cohen's d |
+| 1-2 | Bootstrap CI (1000 resamples) | If CI crosses zero → inconclusive |
+| 1 | Do NOT claim improvement | Report as preliminary observation only |
+
+Annotate each comparison:
+- ✅ p < 0.05 AND Cohen's d > 0.5 → meaningful improvement
+- ⚠️ p < 0.05 but Cohen's d < 0.5 → significant but small effect
+- ❌ p ≥ 0.05 → no reliable improvement
+
+### 5.3 Negative result analysis
+
+Failed and negative-result experiments are data, not waste. For each:
+- What was the hypothesis?
+- What went wrong?
+- What does this tell us about the approach?
+- Should this change the plan?
+
+Record insights:
+```
+research_timeline(action="append_free_event", event_type="insight",
+  summary="Root cause: gradient detachment in residual branch prevents end-to-end learning",
+  event_refs=["exp_005"])
+```
+
+---
+
+## Step 6: Cross-Experiment Consistency
+
+Per-experiment integrity is handled by the dual-gate system (Steps 0.6 and 4.3). This step checks consistency across experiments:
+
+```
+task(subagent_type="auditor", description="Cross-experiment consistency audit",
+  prompt="Audit consistency across completed experiments:
+   [list experiment IDs and their metrics]
+
+   Check:
+   1. Are metrics computed identically across experiments? (same eval script, same metric implementation)
+   2. Are baselines consistent? (same baseline should produce same numbers across experiments)
+   3. Are there any contradictory results? (e.g., ablation A beats ablation B but B is a superset of A)
+   4. Do multi-seed results show expected variance? (unusually low variance may indicate a bug)
+
+   Report: CONSISTENT / INCONSISTENT / NEEDS INVESTIGATION per dimension.")
+```
+
+Record findings:
+```
+research_experiment(action="review", id="exp_XXX",
+  reviewer="auditor",
+  focus="cross-experiment consistency",
+  verdict="pass|revise|rethink",
+  summary="<audit findings>",
+  review_body="<full audit report>")
+```
+
+If consistency issues found:
+- `research_experiment(action="invalidate", id="exp_XXX", invalidation_reason="...")`
+- Plan a clean rerun
+
+---
+
+## Step 7: Supplement Experiments
+
+After analyzing results, determine if the evidence package is sufficient:
+
+### 7.1 Check against plan's evidence sets
+
+- **Kill set passed?** All kill-set experiments completed and results are positive → method works
+- **Kill set failed?** Any kill-set experiment clearly negative → method may not work → consider rollback to `design`
+- **Sufficient set complete?** All sufficient-set experiments passed → ready for `compose` phase (invoke claim-build)
+- **Sufficient set incomplete?** Missing experiments or inconclusive results → supplement
+
+### 7.2 Common supplements needed
+
+| Gap | Supplement | Priority |
+|-----|-----------|----------|
+| Insufficient seeds | Add 2-3 more seeds for key results | HIGH |
+| Missing baseline | Add the strongest recent baseline | HIGH |
+| Missing ablation | Isolate the core component | HIGH |
+| Robustness untested | Vary dataset/scale/hyperparameter | MEDIUM |
+| Edge cases unknown | Design stress test | LOW |
+
+Register and submit supplement experiments following Steps 1-4.
+
+### 7.3 Evidence sufficiency assessment
+
+Use the `methodologist` subagent to assess whether the current evidence package supports the planned claims:
+
+```
+task(subagent_type="methodologist"):
+  "Review the current experiment results against the planned claims:
+
+   Plan: [paste plan's claim-driven validation sketch]
+   Completed experiments: [list with metrics]
+   Failed/invalidated experiments: [list with reasons]
+
+   Assess:
+   1. Which planned claims are now supported by evidence?
+   2. Which claims lack sufficient evidence?
+   3. What specific experiments would fill the remaining gaps?
+   4. Is the evidence package sufficient to proceed to the compose (claim-build) phase?
+
+   Be concrete about what's missing and what would fix it.
+   Return your analysis as structured text."
+```
+
+---
+
+## Step 8: Record Milestones
+
+For significant results:
+
+```
+research_timeline(action="append_free_event", event_type="milestone",
+  summary="Main method validated: +10.7% over baseline across 3 seeds on 2 datasets",
+  event_refs=["exp_007", "exp_008", "exp_009"])
+```
+
+For significant insights from failed experiments:
+
+```
+research_timeline(action="append_free_event", event_type="insight",
+  summary="Ablation reveals factorization module contributes 80% of the gain; other components are dispensable",
+  event_refs=["exp_010", "exp_011"])
+```
+
+---
+
+## Step 9: Advance or Rollback
+
+### 9.1 Paper Ambition Checkpoint
+
+**⏸ CHECKPOINT — do not proceed without user input.**
+
+**Checkpoint kind: `paper_ambition`**
+
+Before transitioning to compose phase, the user must confirm result quality and claim strength.
+
+Present:
+- Kill set status (passed / failed)
+- Sufficient set status (complete / incomplete)
+- RQG evaluation (passed / partial / failed)
+- L1-L6 diagnosis summary
+- Key metrics with statistical significance
+- Red-line audit results
+- Claim strength assessment (strong / moderate / weak)
+- Recommended paper ambition level
+
+**Options for user**:
+1. **Advance to compose** — results support the planned claims; proceed to paper writing
+2. **Strong claim** — RQG passed, evidence is strong
+3. **Moderate claim** — RQG partial, evidence is solid but has caveats
+4. **Weak claim / exploratory** — limited evidence, paper should be scoped narrowly
+5. **Request more experiments** — supplement specific gaps before composing
+6. **Pivot to realize** — DiagnosisReport points to implementation bug
+7. **Pivot to design** — L1-L5 pass but method signal is weak
+8. **Pivot to ground** — L6 shows benchmark/story mismatch
+
+Record user decision rationale in journal.
+**In autonomous mode**: Agent may waive but MUST log waiver with reasoning to `phase_run.human_checkpoints`.
+
+When a human checkpoint is triggered, the system auto-generates a checkpoint brief. The brief provides full context for the human decision. If you need to regenerate or view it, use `research_checkpoint_brief(action="generate"|"read")`.
+
+### 9.2 Record context refresh
+
+```
+research_state(action="brief",
+  context_refresh={
+    used_wiki_refs: [...],
+    phase_run: "experiment-cycle",
+    key_decisions: ["sufficient set complete", "RQG passed", "paper ambition: strong|moderate|weak"],
+    checked_skill_rules: [
+      "Run L1-L6 diagnosis before any method-failure pivot",
+      "RQG evaluated before promote to compose",
+      "DiagnosisReport completed with evidence for each level",
+      "At least min_seeds or explicit justification"
+    ],
+    drift_check: { status: "pass|warning|block", note: "..." }
+  })
+```
+
+### 9.3 Advance to compose phase
+
+When the sufficient set is complete, red-line audits pass, and paper ambition is confirmed:
+
+```
+research_state(action="advance", target_phase="compose",
+  summary="Composing paper from experiment evidence",
+  reason="Sufficient set complete: N experiments passed, red-line audits verified, paper ambition confirmed",
+  refs_plan="plan_002",
+  refs_experiments=["exp_007", "exp_008", "exp_009", "exp_010"])
+```
+
+### 9.4 Optimize experiments (results below expectations but method is viable)
+
+If results are positive but below targets, and the issue is hyperparameters/recipe rather than method design → route to experiment-iterate:
+
+```
+skill(name="experiment-iterate")
+```
+
+### 9.5 Rollback to design
+
+When the method fundamentally doesn't work:
+
+```
+research_state(action="redirect", target_phase="design",
+  summary="Method revision needed based on experiment failures",
+  reason="Kill set failed: [specific failure]. Method needs redesign.",
+  refs_plan="plan_002")
+```
+
+### 9.6 Rollback to explore
+
+When experiments reveal the entire direction is not viable:
+
+```
+research_state(action="redirect", target_phase="explore",
+  summary="Re-exploring research direction",
+  reason="Experiments show [fundamental insight]. Current approach not viable.",
+  refs_idea="idea_014")
+```
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Confirm each experiment submission. Report every completion/failure. Pause before supplementing. Pause before advancing/rolling back.
+- **guided**: Confirm first experiment only. Auto-submit subsequent same-type experiments. Report completions in batches. Pause before advancing/rolling back.
+- **autonomous**: Submit all planned experiments. Auto-supplement based on evidence assessment. Only pause on: all experiments fail, red-line violations detected, rollback needed.
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| Inspire submission fails | Check `inspire_status` for resource availability. Try different compute group, lower priority, or smaller spec. |
+| Job dies immediately | Read `inspire_logs`. Common: wrong image, missing conda, data path incorrect, CUDA version mismatch. Fix and resubmit with same exp ID. |
+| Docker build fails | Switch to `buildah bud --isolation chroot -t image:tag -f Dockerfile .` — see `references/inspire-compute.md` § Image Building |
+| Image not found on platform | Image was pushed to Harbor but not registered. Go to 镜像管理 → 新建镜像. |
+| Budget exhausted | Stop submitting. Report remaining experiments. Suggest: low-priority CPU tasks (free), reduce scope, or pause. |
+| Job preempted | Check if checkpoint exists. If yes: resubmit with resume flag. If no: resubmit from scratch at higher priority. |
+| Results inconsistent across seeds | Run additional seeds. If variance > 2× the improvement → the result is not reliable. |
+| Experiment invalidated | Document reason. Register and run a clean replacement. |
+| Red-line violation | Mark invalidated with violated rule. Fix root cause, then register clean replacement. |
+| All kill-set experiments fail | This is a strong signal the method doesn't work. Recommend rollback to `design` with the failure evidence. |
+| Code has uncommitted changes | REFUSE to submit. Commit first, then register the experiment with the correct code_commit hash. |
+
+---
+
+## Rollback Entry Points
+
+### From compose (evidence insufficient)
+1. Read which claims lack evidence → design targeted supplement experiments → re-enter at Step 1 or Step 7
+
+### From venue-cycle (reviewer demands more experiments)
+1. Map each reviewer request to a specific experiment → register and submit as new supplement batch → re-enter at Step 1

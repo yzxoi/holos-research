@@ -1,0 +1,44 @@
+# Monochrome Pro — Print-perfect grayscale with accent
+# Always readable in B&W, subtle grid, serif option
+
+font.family: sans-serif
+font.size: 10
+axes.labelsize: 11
+axes.titlesize: 12
+axes.titleweight: bold
+xtick.labelsize: 9
+ytick.labelsize: 9
+legend.fontsize: 9
+
+axes.facecolor: FFFFFF
+figure.facecolor: FFFFFF
+axes.edgecolor: 888888
+axes.linewidth: 0.8
+axes.spines.top: False
+axes.spines.right: False
+
+axes.grid: True
+grid.color: E0E0E0
+grid.linestyle: --
+grid.alpha: 0.4
+grid.linewidth: 0.5
+
+axes.prop_cycle: cycler('color', ['2D2D2D', '757575', 'A8A8A8', 'C44E52', '4C72B0', '555555', '999999'])
+
+lines.linewidth: 1.8
+lines.markersize: 6
+
+legend.frameon: True
+legend.framealpha: 0.9
+legend.edgecolor: CCCCCC
+legend.fancybox: True
+
+figure.dpi: 200
+savefig.dpi: 300
+savefig.bbox: tight
+savefig.pad_inches: 0.08
+
+xtick.direction: out
+ytick.direction: out
+xtick.major.size: 4
+ytick.major.size: 4

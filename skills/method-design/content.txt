@@ -1,0 +1,906 @@
+# Method Spec — From Positioned Contribution to Implementation-Ready Method
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL files under `.research/`** — never write to project root.
+2. **Plans via `research_plan(action="create")`** — writes to `.research/plans/`.
+3. **Reviews via `research_plan(action="review")`** — not free-text files.
+4. **Subagents return text, not files.** Each dispatch includes agent-type-specific file guidance.
+5. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, and naming conventions.
+6. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+7. **Git commit research artifacts** after modifying .research/ files.
+8. **Method is only half the work.** Simultaneously design benchmarks, datasets, baselines, evaluation, and infrastructure. Load the relevant reference files for each dimension. None are optional.
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- [ ] FormalMethodSpec includes: problem_formalization, core_mechanism, novelty_math_diff, assumptions, complexity, failure_modes
+- [ ] Method thesis is falsifiable — stated as "We hypothesize that X because Y, which would mean Z" with genuinely uncertain outcome
+- [ ] Boring explanation identified — most likely confound for a positive result and how the experiment rules it out
+- [ ] Design rationale provided for each key design choice (architecture, loss, training strategy, component selection)
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- [ ] kill_set is non-empty with numerical thresholds
+- [ ] sufficient_set aligns with expected claims
+- [ ] Design focuses on algorithm/mechanism, NOT Docker/training scripts/file structure
+- [ ] Experiment Matrix specifies all experiment groups with hyperparameters, seed strategy, and per-group compute
+- [ ] Record used_wiki_refs in phase_run.context_refresh
+
+### Forbidden
+- [ ] Do not include Docker images or training script file structure in design (but DO specify key hyperparameters and experiment configurations in the Experiment Matrix)
+- [ ] Do not promote without measurable kill/sufficient criteria
+- [ ] Do not skip failure mode analysis
+- [ ] Do not skip Experiment Matrix — it is mandatory for any method involving training or evaluation
+
+### Checkpoints
+- [ ] reasonableness_check: User confirms mechanism is worth implementing before realize
+- [ ] resource_commitment: Confirm compute budget before large-scale experiments
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: design`
+- At least one idea has a stable contribution statement (from novelty-ground)
+- No existing plan is `active` (or the active plan is being superseded)
+
+## Output contract
+
+By the end of this skill:
+
+- A `plan_XXX` object exists with status `active`
+- The plan's `.md` contains a complete method specification and experiment design across all five dimensions
+- Multiple `research_plan(action="review")` records document the adversarial refinement history
+- The plan is ready for experiment-cycle
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+Before beginning any work in this phase:
+
+1. **Load core state**:
+   ```
+   research_state(action="read")
+   ```
+   - Load `state.focus`, `active_phase_run`, and `anchor`
+   - Identify selected idea from `focus.refs.idea`
+
+2. **Load relevant StorySpine and Plan**:
+   - Read the selected idea's `.md` — Positioning section, contribution statement, grounded StorySpine
+   - Read `positioning/idea_*.story.yaml` for grounded StorySpine
+   - Read `positioning/story_spine_*.yaml` for StorySpine (grounded_angle provides the paper path direction)
+   - Check for existing plans via `research_plan(action="list")`
+
+3. **Load wiki context**:
+   ```
+   research_wiki(action="query")
+   ```
+   - Read relevant `papers/{slug}.md` — Method, Assumptions, Reusable Ingredients, Limitations
+   - Read wiki edges for extends/contradicts relationships
+
+4. **Record wiki refs**:
+   - Record all `used_wiki_refs` in `phase_run.context_refresh`
+
+5. **Check skill checklist rules**:
+   - Review Must/Forbidden/Checklists below
+   - Record `checked_skill_rules` in `phase_run.context_refresh`
+
+6. **Drift check**:
+   - Verify method design still addresses `anchor`
+   - If drift detected, flag before proceeding
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","plan","wiki"], checked_skill_rules: true})
+```
+
+---
+
+## Constants — Read from `research_state(action="read")` config
+
+- `config.design.max_review_rounds` (default: 5) — Maximum review-revise iterations
+- `config.design.score_threshold` (default: 7) — Minimum overall score to declare READY
+- `config.design.max_primary_claims` (default: 2) — Prefer one dominant + at most one supporting
+- `config.design.max_new_components` (default: 2) — Soft cap for genuinely new pieces
+
+---
+
+## DAG Template
+
+Create this DAG at skill entry. The five experiment design dimensions run in parallel via subagent dispatches.
+
+```
+dagwrite({ nodes: [
+  { id: "load",          content: "Load idea, wiki, assets, anchor",              status: "pending", deps: [] },
+  { id: "gap",           content: "Technical gap analysis and route selection",    status: "pending", deps: ["load"] },
+  { id: "method",        content: "Design method: thesis, mechanism, complexity budget, system graph, training recipe, inference path, failure modes, novelty argument", status: "pending", deps: ["gap"] },
+  { id: "benchmark",     content: "Survey and select benchmarks. Load references/benchmark-design.md. Dispatch scholar subagents.", status: "pending", deps: ["gap"], assign: "scholar" },
+  { id: "dataset",       content: "Design dataset: sources, preprocessing, splits. Load references/dataset-design.md if training is involved.", status: "pending", deps: ["gap"], assign: "scholar" },
+  { id: "baselines",     content: "Select and configure baselines. Load references/baseline-design.md. Dispatch scholar subagents.", status: "pending", deps: ["gap"], assign: "scholar" },
+  { id: "evaluation",    content: "Design evaluation: metrics, statistics, result presentation. Load references/evaluation-design.md.", status: "pending", deps: ["gap"] },
+  { id: "infrastructure",content: "Design infrastructure: training recipe, reproducibility, efficiency. Load references/training-design.md and references/experiment-efficiency.md.", status: "pending", deps: ["gap"] },
+  { id: "exp-matrix",   content: "Design experiment matrix: groups, hyperparameters, seeds, dependency graph, per-group compute. Depends on method + infrastructure decisions.", status: "pending", deps: ["method", "infrastructure"] },
+  { id: "synthesize",    content: "Synthesize all five dimensions + experiment matrix into a coherent proposal. Resolve cross-dimension conflicts.", status: "pending", deps: ["method", "benchmark", "dataset", "baselines", "evaluation", "infrastructure", "exp-matrix"] },
+  { id: "authenticity",  content: "Verify every planned experiment meets evidence-grade standards: real data, official evaluators, full scale. Flag any synthetic/toy plans as prototype.", status: "pending", deps: ["synthesize"] },
+  { id: "propose",       content: "Write and register the initial plan proposal",  status: "pending", deps: ["authenticity"] },
+  { id: "review",        content: "Adversarial method review via critic",          status: "pending", deps: ["propose"], assign: "critic" },
+  { id: "revise",        content: "Parse feedback, revise proposal, re-review",   status: "pending", deps: ["review"] },
+  { id: "writeback",     content: "Wiki writeback: link plan to papers and gaps", status: "pending", deps: ["revise"] },
+  { id: "present",       content: "Present final proposal to user for approval",  status: "pending", deps: ["writeback"] },
+  { id: "activate",      content: "Approve, activate plan, advance to experiment",status: "pending", deps: ["present"] }
+]})
+```
+
+Nodes `method`, `benchmark`, `dataset`, `baselines`, `evaluation`, and `infrastructure` run in parallel after gap analysis. The `synthesize` node waits for all six to complete, then resolves cross-dimension conflicts before writing the proposal.
+
+If a dimension is not applicable (e.g., no training needed → skip dataset and training design), set that node to `cancelled` and remove it from `synthesize` deps.
+
+---
+
+## Step 0: Load Context and Freeze Anchor
+
+### 0.1 Read state and idea
+
+```
+research_state(action="read")
+research_idea(action="list")
+```
+
+Identify the selected idea from `focus.refs.idea`. Read its `.md` — especially the Positioning section: contribution statement, type, strength calibration, related work table, positioning matrix.
+
+### 0.2 Load literature context
+
+```
+research_wiki(action="query")
+```
+
+Read relevant `papers/{slug}.md` — focus on Method, Assumptions, Reusable Ingredients, and Limitations. Read wiki edges to understand what extends/contradicts the key prior work.
+
+### 0.3 Check for existing plans
+
+```
+research_plan(action="list")
+```
+
+If there are prior plans (e.g. from a previous design iteration), read them. If a plan is being superseded, note what went wrong to avoid repeating the same mistakes.
+
+### 0.4 Read assets
+
+If `ASSETS.md` exists, read it for compute, data, model, and platform constraints.
+
+### 0.5 Check the anchor
+
+The `anchor` field from `research_state(action="read")` is the user's research direction. The method must solve this — if review feedback would change the problem being solved, that is drift, not refinement. Push back or update the anchor explicitly via `research_state(anchor="...")`.
+
+```
+dagpatch({ nodes: [{ id: "load", status: "completed" }] })
+```
+
+---
+
+## Step 1: Technical Gap and Route Selection
+
+### 1.1 Scan grounding material
+
+From the wiki papers and idea positioning, extract:
+
+- What mechanism do current methods use?
+- Where exactly do they fail for this problem?
+- Which recent techniques are relevant?
+- What training objectives, representations, or interfaces are reusable?
+- What details distinguish a real method from a renamed high-level idea?
+
+### 1.2 Active search if needed
+
+If local material is insufficient:
+
+```
+task(subagent_type="scholar", background=true):
+  "Find the most recent (2025-2026) methods that address [bottleneck].
+   Focus on: mechanism, training setup, failure modes.
+  For important papers (core relevance):
+  1. Call research_wiki(action="ingest_paper", title="...", authors=[...], year=..., venue="...", arxiv="...", thesis="...", method="...", key_results="...", limitations="...", project_relevance="...") to register with content
+  2. Download PDF via arxiv_download to .research/literature/papers/{arxiv_id}.pdf
+  For minor papers: return title/arxiv/venue as text, main agent decides whether to ingest.
+    Return: title, one-line method, key limitation, date."
+
+task(subagent_type="scout", background=true):
+  "Search for open-source implementations of [approach type].
+   What training recipes and architectures do they use?
+    Return: repo, method, key hyperparameters, dataset."
+```
+
+If scholar found new papers it didn't ingest, supplement:
+```
+research_wiki(action="ingest_paper", ...)
+```
+
+### 1.3 Make the gap operational
+
+Do not stop at generic research questions. Specify:
+
+1. Current pipeline failure point: Where does the baseline break?
+2. Why naive fixes fail: Larger context, more data, prompting, memory bank — why aren't these enough?
+3. Smallest adequate intervention: What is the least mechanism that could fix the bottleneck?
+4. Frontier-native alternative: Is there a more current route using foundation-model-era primitives?
+5. Core technical claim: What exact mechanism claim could survive top-venue scrutiny?
+6. Required evidence: What minimum proof is needed?
+
+### 1.4 Route selection
+
+If two plausible routes exist:
+
+- Route A: Elegant minimal — the smallest mechanism directly targeting the bottleneck
+- Route B: Frontier-native — a more modern route using LLM/VLM/Diffusion/RL only if it gives a cleaner story
+
+Decision criteria: which route becomes a stronger paper? Which has cleaner novelty? Which avoids contribution sprawl?
+
+If both routes are weak, rethink the framing rather than combining them.
+
+```
+dagpatch({ nodes: [{ id: "gap", status: "completed" }] })
+```
+
+---
+
+## Step 2: Design the Evidence Package
+
+The method is a hypothesis. The evidence package proves or disproves it. Design both together — a method without evidence is speculation.
+
+For each core claim, define the evidence that would convince a skeptical reviewer:
+- What benchmark, at what scale, with what official evaluation protocol?
+- What baseline comparison would make the improvement undeniable?
+- What ablation would isolate the contribution from confounding factors?
+
+Evidence must be:
+- Real: actual benchmarks with actual data, not synthetic substitutes
+- Reproducible: a stranger with your code and configs gets the same numbers
+- Comparable: same data, same evaluator, same protocol as baselines
+- Sufficient: enough scale and seeds that statistical claims are credible
+
+The method and its supporting experiment design are co-dependent. Design all five dimensions together. The order below is a starting point — jump between dimensions as constraints from one inform another.
+
+### Dimension 1: Method Design
+
+The proposal must answer "how would we build this?" Concrete enough that implementation could start.
+
+Cover all of these:
+
+1. One-sentence method thesis: A falsifiable mechanism claim — "We hypothesize that X because Y, which would mean Z." The outcome must be genuinely uncertain; explain why you could be wrong. If you already know it works, the thesis is not sharp enough.
+2. Boring explanation: What is the most likely boring explanation (confound, data leakage, weak baseline, prompt sensitivity, compute mismatch) for a positive result? How does the experiment design rule it out? If no boring explanation exists, explain why the hypothesis is genuinely uncertain rather than trivially true.
+3. Contribution focus: One dominant + at most one supporting contribution
+4. Complexity budget:
+   - What is frozen / reused (backbone, tokenizer, pre-trained weights)
+   - What is new (≤ `config.design.max_new_components` trainable components)
+   - What tempting additions are intentionally excluded and why
+5. System graph: Modules, data flow, inputs, outputs
+6. Representation design: What latent / embedding / token / signal space
+7. Training recipe: Data source, supervision, losses, weighting, stagewise vs joint
+8. Inference path: How trained components are used at test time
+9. Why the mechanism stays small: Why a larger stack is unnecessary
+10. Frontier primitive usage (if any): Exact role — planner, teacher, critic, reward model, generator prior, search controller, or distillation source
+11. Failure modes: What could go wrong and what fallback exists
+12. Novelty argument: How this differs from closest work, why it's more than naming a module
+13. Design rationale: For each key design choice (architecture, loss, training strategy, component selection), state why this choice over alternatives. No choice should be unexplained — "standard practice" is an acceptable rationale only with citation.
+
+Concreteness test: If a qualified engineer could not start implementing from this design, it is not concrete enough. Iterate until it passes this test.
+
+```
+dagpatch({ nodes: [{ id: "method", status: "completed" }] })
+```
+
+### Dimension 2: Benchmark Design
+
+Load `references/benchmark-design.md` for the full benchmark selection protocol. Skip if the contribution is purely theoretical or the task definition inherently specifies the benchmark.
+
+Every benchmark selected must be used with its official evaluator. Never write a custom evaluator to replace the benchmark's own evaluation protocol — results from custom evaluators are not comparable to published numbers and do not constitute evidence.
+
+Summary of required actions:
+
+Survey current benchmarks via parallel scholar dispatches. Evaluate each candidate against relevance, currency, difficulty, diversity, and reproducibility. Document each selected benchmark with identity, claim mapping, current SOTA numbers, target improvement threshold, and known caveats.
+
+If no suitable benchmark exists, either create one or reframe the claim.
+
+```
+dagpatch({ nodes: [{ id: "benchmark", status: "completed" }] })
+```
+
+### Dimension 3: Dataset Design
+
+Load `references/dataset-design.md` if the method involves training, fine-tuning, or custom data construction. Skip if using only pre-packaged benchmark data with no modification beyond tokenization.
+
+Summary of required actions:
+
+Determine data requirements from the method design. Identify sources via scholar survey. Design preprocessing pipeline. Define train/val/test splits with leakage prevention. Version and document the dataset.
+
+```
+dagpatch({ nodes: [{ id: "dataset", status: "completed" }] })
+```
+
+### Dimension 4: Baseline Design
+
+Load `references/baseline-design.md` for the full baseline selection protocol. Skip if the contribution is purely theoretical with no empirical comparison.
+
+Summary of required actions:
+
+Map the research landscape into approach categories via scholar dispatch. Select the strongest representative per category. Document exact configuration for each baseline. Validate reproduction against published numbers. Run fairness audit across all baselines.
+
+```
+dagpatch({ nodes: [{ id: "baselines", status: "completed" }] })
+```
+
+### Dimension 5: Evaluation Design
+
+Load `references/evaluation-design.md` for the full evaluation design protocol.
+
+Summary of required actions:
+
+Choose primary and secondary metrics. Check each metric for known pitfalls. Define statistical methodology (seeds, significance tests, reporting format). Document the exact evaluation procedure. Plan result presentation (tables, figures, case studies).
+
+```
+dagpatch({ nodes: [{ id: "evaluation", status: "completed" }] })
+```
+
+### Dimension 6: Infrastructure Design
+
+Load `references/training-design.md` if training is involved. Load `references/experiment-efficiency.md` for parallelization and monitoring.
+
+Summary of required actions:
+
+Design training recipe (optimizer, schedule, batch size, precision, loss, stages, checkpointing). Plan compute resources (GPU type, count, VRAM, estimated time). Ensure environment reproducibility (Docker image, pinned packages, fixed seeds). Design failure recovery for OOM, NaN, preemption. Plan parallel execution and monitoring schedule.
+
+```
+dagpatch({ nodes: [{ id: "infrastructure", status: "completed" }] })
+```
+
+---
+
+## Step 3: Synthesize and Resolve Conflicts
+
+### 3.1 Cross-dimension consistency check
+
+After all six dimensions are designed, verify they are mutually consistent:
+
+- Does the method's complexity budget match the infrastructure plan?
+- Do the selected benchmarks directly test the method's core claims?
+- Are baselines evaluated on the same benchmarks with the same metrics?
+- Does the dataset design support the training recipe?
+- Is the evaluation protocol consistent across all experiments?
+
+### 3.2 Resolve conflicts
+
+If dimensions conflict, resolve by priority:
+
+- The method's core claim is the anchor — other dimensions serve it
+- If a benchmark doesn't test the claim, change the benchmark, not the claim
+- If infrastructure cannot support the method, simplify the method or increase resources
+- If baselines are unavailable for a key comparison, document the gap
+
+### 3.3 Dimension convergence gate
+
+Before proceeding to write the proposal, verify:
+
+- Every core claim has a specific benchmark that tests it
+- Method thesis is falsifiable with a genuinely uncertain outcome
+- Boring explanation is identified and the experiment design rules it out
+- Design rationale is provided for each key design choice
+- Every benchmark has documented SOTA numbers and expected improvement
+- Baselines cover all major approach categories
+- Primary metric directly captures the contribution
+- Statistical methodology is specified (seeds, tests, reporting format)
+- Infrastructure plan covers environment, reproducibility, and efficiency
+- Experiment Matrix is complete with all applicable groups, hyperparameters, seed strategy, and per-group compute
+- No dimension contains "we'll figure this out later"
+
+If any check fails, iterate on that dimension until it is concrete.
+
+```
+dagpatch({ nodes: [{ id: "synthesize", status: "completed" }] })
+```
+
+---
+
+## Step 4: Write the Initial Proposal
+
+### 4.1 Register the plan
+
+```
+research_plan(action="create", title="Method proposal v1", idea="idea_XXX", content="## Problem Anchor\n...\n\n## Technical Gap\n...\n\n## Method Thesis\n...\n\n## Proposed Method\n...\n\n## Benchmark Design\n...\n\n## Dataset Design\n...\n\n## Baseline Design\n...\n\n## Evaluation Design\n...\n\n## Infrastructure Design\n...")
+```
+
+Pass the full proposal directly via `content`. No separate edit step.
+
+If superseding an old plan:
+```
+research_plan(action="create", title="Method proposal v2", idea="idea_XXX", supersedes="plan_001", content="[full revised proposal]")
+```
+
+### 4.2 Proposal structure
+
+The full proposal is passed via the `content` parameter on create (above). Structure:
+
+```markdown
+## Problem Anchor
+- Bottom-line problem:
+- Must-solve bottleneck:
+- Non-goals:
+- Constraints:
+- Success condition:
+
+## Technical Gap
+[Why current methods fail, why naive bigger systems are not enough, what mechanism is missing]
+
+## Method Thesis
+- One-sentence falsifiable thesis: "We hypothesize that [X] because [Y], which would mean [Z]." The outcome must be genuinely uncertain — if you already know it works, the thesis is not sharp enough.
+- Boring explanation: What is the most likely boring explanation (confound, data leakage, weak baseline, prompt sensitivity, compute mismatch) for a positive result? How does the experiment rule it out?
+- Why this is the smallest adequate intervention:
+- Why this route is timely:
+
+## Contribution Focus
+- Dominant contribution:
+- Optional supporting contribution:
+- Explicit non-contributions:
+
+## Proposed Method
+
+### Complexity Budget
+- Frozen / reused backbone:
+- New trainable components: (≤2)
+- Tempting additions intentionally excluded:
+
+### System Overview
+[Step-by-step pipeline or system graph]
+
+### Core Mechanism
+- Input / output:
+- Architecture or policy:
+- Training signal / loss:
+- Why this is the main novelty:
+- Design rationale: Why this architecture/loss/policy over alternatives? Each key choice must be justified.
+
+### Optional Supporting Component
+[Only if truly necessary; explain why it doesn't create sprawl]
+
+### Frontier Primitive Usage
+[If applicable: which primitive, exact role, why more natural than alternatives]
+
+### Training Plan
+[Stagewise or joint, losses, data, schedules. Key hyperparameters specified here are the defaults that feed into the Experiment Matrix.]
+
+### Inference Path
+[How trained components are used at test time]
+
+### Failure Modes and Diagnostics
+- [Failure mode]: detection → fallback
+
+### Novelty and Elegance Argument
+[Closest work, exact difference, why focused not a pile-up]
+
+## Benchmark Design
+[From references/benchmark-design.md template]
+
+## Dataset Design
+[From references/dataset-design.md template. Omit if not applicable.]
+
+## Baseline Design
+[From references/baseline-design.md template]
+
+## Evaluation Design
+[From references/evaluation-design.md template]
+
+## Infrastructure Design
+[From references/training-design.md and references/experiment-efficiency.md templates]
+
+## Experiment Matrix
+
+### Experiment Groups
+| Group | Purpose | Key Configuration | Seeds | Est. GPU-hours | Dependencies |
+|-------|---------|-------------------|-------|----------------|--------------|
+| Sanity | Verify pipeline correctness end-to-end | Small model subset, 1 epoch, debug data | 1 | — | None |
+| Baseline | Reproduce published baseline numbers | Exact configs from baseline papers | ≥3 | — | Sanity pass |
+| Main | Primary method evaluation | Default hyperparameters (see below) | ≥3 | — | Baseline complete |
+| Ablation | Isolate each component's contribution | Remove one component at a time | ≥3 | — | Main complete |
+| Robustness | Test generalization across conditions | Vary seed, data order, minor hyperparams | ≥5 | — | Main complete |
+| Stress | Push method to failure boundary | Edge-case inputs, extreme hyperparams | 1-2 | — | Main complete |
+
+Note: Not all groups are required. Skip groups that don't apply to the contribution type. Mark skipped groups as N/A with justification.
+
+### Key Hyperparameters
+- Learning rate: [default] (search range: [min-max] if tuning planned)
+- Batch size: [default]
+- Optimizer: [name and version if non-standard]
+- Epochs / steps: [default]
+- Weight decay: [default] (search range: [min-max] if tuning planned)
+- Warmup: [default]
+- [Method-specific hyperparameters with defaults and search ranges]
+
+### Seed Strategy
+- Number of seeds: [N] (justification: why N seeds are sufficient for statistical claims)
+- Seed values: [e.g., 42, 123, 456, 789, 1024]
+- Significance test: [which test, e.g., paired t-test / Wilcoxon / bootstrap]
+- Minimum detectable effect: [what improvement size the seed count can reliably detect at p<0.05]
+
+### Experiment Dependency Graph
+- [Which groups can run in parallel, which must be sequential]
+- [Any resource contention or shared state concerns]
+
+### Per-Group Compute Budget
+| Group | GPU Type | GPUs per Run | Est. Time per Run | Total Runs | Total GPU-hours |
+|-------|----------|-------------|-------------------|------------|-----------------|
+| Sanity | — | — | — | — | — |
+| Baseline | — | — | — | — | — |
+| Main | — | — | — | — | — |
+| Ablation | — | — | — | — | — |
+| Robustness | — | — | — | — | — |
+| Stress | — | — | — | — | — |
+| **Total** | | | | | **—** |
+
+## Evidence Authenticity
+- Authenticity level per experiment group:
+  - Sanity: [prototype/pilot/evidence]
+  - Baselines: [evidence]
+  - Main: [evidence]
+  - Ablations: [evidence]
+  - Robustness: [pilot/evidence]
+  - Stress: [pilot/evidence]
+- Justification for any non-evidence classification:
+
+## Compute & Timeline Estimate
+- Total GPU-hours: [sum from Experiment Matrix Per-Group Compute Budget]
+- GPU region & VRAM: [from inspire_status() — note VRAM per card]
+- Image plan (required before experiment phase): base (cuda version), packages and versions, any system libs / custom CUDA kernels
+- Data requirements:
+- Timeline:
+```
+
+### 4.3 Move plan to refining
+
+```
+research_plan(action="refine", id="plan_XXX")
+```
+
+### 4.4 Record milestone
+
+```
+research_timeline(action="append_free_event", event_type="decision",
+  summary="Method proposal v1: <one-line thesis>",
+  event_refs=["idea_XXX", "plan_XXX"])
+```
+
+```
+dagpatch({ nodes: [{ id: "propose", status: "completed" }] })
+```
+
+---
+
+## Step 5: Adversarial Method Review
+
+This is the core refinement loop. Deploy the critic subagent:
+
+```
+task(subagent_type="critic", background=true, dag_node_id="review"):
+  "You are reviewing a method-first research proposal for a top venue.
+
+   Your job is NOT to reward extra modules, contribution sprawl, or giant benchmark checklists.
+   Your job IS to stress-test whether the proposed method:
+   (1) still solves the original anchored problem
+   (2) is concrete enough to implement
+   (3) presents a focused, elegant contribution
+   (4) uses foundation-model-era techniques appropriately
+   (5) is supported by adequate benchmarks, baselines, and evaluation
+   (6) has a falsifiable thesis with a genuinely uncertain outcome
+   (7) has identified the most likely boring explanation and the experiment rules it out
+   (8) justifies each key design choice with rationale
+
+   Review principles:
+   - Prefer the smallest adequate mechanism over a larger system
+   - Penalize parallel contributions that make the paper unfocused
+   - If a modern route would produce a better paper, say so concretely
+   - If already modern enough, do NOT force trendy components
+   - Do not ask for extra experiments unless needed to prove core claims
+   - Check that benchmarks directly test the claims, baselines are fair, and evaluation is rigorous
+
+   Read the Problem Anchor first. If your suggested fix would change the problem
+   being solved, call that out as drift.
+
+   === PROPOSAL ===
+   [paste full proposal from plan .md]
+   === END PROPOSAL ===
+
+   Score these dimensions (1-10):
+
+   1. Problem Fidelity (12%): Does the method attack the original bottleneck?
+   2. Method Specificity (16%): Concrete enough to implement?
+   3. Contribution Quality (16%): One dominant mechanism claim, real novelty, no sprawl?
+   4. Hypothesis Sharpness (8%): Is the thesis falsifiable? Is the outcome genuinely uncertain? Is the most likely boring explanation identified and ruled out by the experiment?
+   5. Design Rationale (8%): Is each key design choice justified? Are alternatives considered? Or are choices asserted without explanation?
+   6. Frontier Leverage (8%): Uses current primitives appropriately?
+   7. Impact Potential (12%): If this method works as proposed, does it change how people
+      think about the problem? Would other researchers build on it?
+   8. Feasibility (8%): Can this be built with stated resources?
+   9. Experiment Design Quality (8%): Are benchmarks appropriate, baselines fair,
+          evaluation rigorous, and infrastructure adequate?
+   10. Evidence Quality (4%): Are benchmarks real and current? Are official evaluators used?
+          Is the scale sufficient? Would a skeptical reviewer accept this as proof?
+
+       OVERALL SCORE (1-10): Weighted average of all 10 dimensions.
+
+   For each dimension < 7:
+   - Specific weakness
+   - Concrete fix (interface / loss / training recipe / deletion / benchmark change)
+   - Priority: CRITICAL / IMPORTANT / MINOR
+
+   Also:
+   - Simplification Opportunities: 1-3 ways to delete/merge/reuse. NONE if already tight.
+   - Modernization Opportunities: 1-3 ways to replace old-school pieces. NONE if already modern.
+   - Experiment Design Gaps: Any missing benchmarks, weak baselines, or evaluation flaws.
+   - Drift Warning: NONE or explanation.
+   - Verdict: READY (score ≥9, no drift, focused) / REVISE / RETHINK
+   Return your review as structured text."
+```
+
+### 5.1 Record the review
+
+```
+research_plan(action="review", id="plan_XXX", reviewer="critic",
+  summary="<review summary>",
+  verdict="pass|revise|rethink",
+  scores={
+    problem_fidelity: N, method_specificity: N, contribution_quality: N,
+    hypothesis_sharpness: N, design_rationale: N, frontier_leverage: N,
+    impact_potential: N, feasibility: N,
+    experiment_design_quality: N, evidence_quality: N, overall: N
+  },
+  action_items=[...],
+  review_body="<full review text>")
+```
+
+---
+
+## Step 6: Parse Feedback and Revise
+
+### 6.1 Stop condition
+
+If overall score ≥ `config.design.score_threshold` AND verdict is READY AND no unresolved drift → skip to Step 8.
+
+### 6.2 Anchor and simplicity check
+
+Before making any changes:
+
+1. Copy the Problem Anchor verbatim
+2. Anchor check: Which suggestions would cause drift?
+3. Simplicity check: What is the dominant contribution? What can be removed/merged/frozen? Which suggestions add unnecessary complexity?
+
+### 6.3 Classify feedback
+
+- Valid: Sharpen mechanism, simplify, modernize, or strengthen experiment design
+- Debatable: Revise but explain reasoning
+- Wrong / drifting / over-complicating: Push back with evidence
+
+### 6.4 Revision bias
+
+Always bias toward:
+- Sharper central contribution
+- Fewer moving parts
+- Cleaner reuse of strong backbones
+- More natural frontier leverage when it improves the paper
+- Stronger experiment design (better benchmarks, fairer baselines, more rigorous evaluation)
+
+Do NOT add parallel contributions to chase score. If reviewer requests another module, first ask whether the same gain comes from a better interface, distillation signal, or inference policy.
+
+### 6.5 Write revised proposal
+
+Create a new plan version: `research_plan(action="create", title="Method proposal v[N+1]", idea="idea_XXX", supersedes="plan_XXX", content="[full revised proposal with anchor + simplicity check prepended]")`. Supersession creates a new immutable plan — never edit an existing plan's .md.
+
+Record the revision:
+```
+research_timeline(action="append_free_event", event_type="insight",
+  summary="Method revised round N: <key change>",
+  event_refs=["plan_XXX"])
+```
+
+### 6.6 Re-review
+
+Send the revised proposal back to reviewer. Include: Problem Anchor, score history from prior rounds, and the full revised proposal (reviewer is stateless).
+
+Repeat Steps 5-6 until:
+- Overall score ≥ `config.design.score_threshold` AND verdict is READY AND no drift
+- OR `config.design.max_review_rounds` reached
+
+### 6.7 Negative progress detection
+
+If score does not improve for 2 consecutive rounds:
+- The method may need fundamental rethinking, not incremental revision
+- Present the situation to the user
+- Consider: rollback to ground (if contribution is unclear) or explore (if direction is weak)
+
+```
+dagpatch({ nodes: [{ id: "revise", status: "completed" }] })
+```
+
+---
+
+## Step 7: Wiki Writeback
+
+After the method is refined:
+
+```
+research_wiki(action="link", from="plan_XXX", to="<slug>", edge_type="extends",
+  evidence="<how our method builds on this paper>")
+
+research_wiki(action="link", from="plan_XXX", to="<slug>", edge_type="contradicts",
+  evidence="<which assumption we violate>")
+
+research_wiki(action="link", from="plan_XXX", to="G0X", edge_type="addresses_gap",
+  evidence="<how our method addresses this gap>")
+```
+
+```
+dagpatch({ nodes: [{ id: "writeback", status: "completed" }] })
+```
+
+---
+
+## Step 8: Present to User
+
+**⏸ CHECKPOINT — do not proceed without user input.**
+
+**Checkpoint kind: `reasonableness_check` + `resource_commitment`**
+
+Before transitioning to realize phase, the user must confirm the mechanism is worth implementing AND commit resources.
+
+Present:
+- Method thesis (one sentence)
+- Contribution focus (dominant + optional supporting)
+- Broader significance (from the contribution statement — why this matters beyond the immediate technical result)
+- Complexity budget (what is new vs reused)
+- Benchmark selection (which benchmarks, why, current SOTA, target improvement)
+- Baseline coverage (which approach categories, are comparisons fair)
+- Evaluation plan (primary metric, statistical methodology)
+- Infrastructure plan (compute, reproducibility, efficiency)
+- Experiment matrix summary (number of groups, total runs, key hyperparameters, seed strategy)
+- Overall score and verdict from last review round
+- Score history across all rounds (show convergence)
+- Key remaining concerns (honest)
+- Drift status (preserved / corrected / unresolved)
+- Compute and timeline estimate
+
+**Options for user**:
+1. **Approve and advance to realize** — confirm mechanism is worth implementing
+2. **Request revisions** — specific changes to method, benchmarks, or evaluation
+3. **Rollback to ground** — contribution boundary is unclear; needs re-positioning
+4. **Rollback to explore** — direction is not viable
+
+**Resource commitment questions**:
+- Confirm compute budget available for implementation and experiments
+- Confirm timeline aligns with target venue deadlines
+- Confirm team capacity for implementation
+
+Record user decision rationale in journal.
+**In autonomous mode**: Agent may waive but MUST log waiver with reasoning to `phase_run.human_checkpoints`.
+
+When a human checkpoint is triggered, the system auto-generates a checkpoint brief. The brief provides full context for the human decision. If you need to regenerate or view it, use `research_checkpoint_brief(action="generate"|"read")`.
+
+---
+
+## Step 9: Approve and Activate
+
+### 9.1 Confirm checkpoint before activation
+
+**⏸ CHECKPOINT — do not proceed without user input.**
+
+**Checkpoint kind: `reasonableness_check`**
+
+Before activating the plan:
+- Confirm user has approved the final proposal
+- Confirm resource commitment for realize + experiment phases
+- Record decision rationale
+
+### 9.2 Activate plan
+
+Once the user approves:
+
+```
+research_plan(action="approve", id="plan_XXX", approved_by="user")
+research_plan(action="activate", id="plan_XXX")
+```
+
+This auto-supersedes any previously active plan.
+
+### 9.3 Record context refresh
+
+```
+research_state(action="brief",
+  context_refresh={
+    used_wiki_refs: ["paper_slug_1", "paper_slug_2", ...],
+    phase_run: "method-design",
+    key_decisions: ["method approved", "score N/10 after M rounds"],
+    checked_skill_rules: [
+      "FormalMethodSpec includes problem_formalization, core_mechanism, novelty_math_diff, assumptions, complexity, failure_modes",
+      "Method thesis is falsifiable with genuinely uncertain outcome",
+      "Boring explanation identified and ruled out by experiment",
+      "Design rationale provided for each key design choice",
+      "kill_set is non-empty with numerical thresholds",
+      "sufficient_set aligns with expected claims",
+      "Design focuses on algorithm/mechanism, NOT Docker/training scripts",
+      "Experiment Matrix specifies all experiment groups with hyperparameters, seed strategy, and per-group compute"
+    ],
+    drift_check: { status: "pass|warning|block", note: "..." }
+  })
+```
+
+### 9.4 Advance state
+
+```
+research_state(action="advance", target_phase="realize",
+  summary="Realizing method from plan: <plan title>",
+  reason="Method proposal approved by user after N rounds of adversarial review",
+  refs_idea="idea_XXX", refs_plan="plan_XXX")
+```
+
+Record milestone:
+```
+research_timeline(action="append_free_event", event_type="milestone",
+  summary="Method approved: <one-line thesis>. Score: N/10 after M rounds.",
+  event_refs=["idea_XXX", "plan_XXX"])
+```
+
+```
+dagpatch({ nodes: [{ id: "activate", status: "completed" }] })
+```
+
+---
+
+## Participation Mode Behavior
+
+- collaborative: Pause after anchor freeze (Step 0), after synthesis (Step 3), after initial proposal (Step 4), after each review round (Step 6), and at the final checkpoint (Step 8)
+- guided: Pause at Step 8 only
+- autonomous: Run full workflow, present final result
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| Method is overbuilt | Apply simplicity check. Remove weakest component, test if core claim survives |
+| Contribution sprawl | Collapse to one dominant contribution. Move extras to future work |
+| Drift detected | Present both directions to user. Do not resolve unilaterally |
+| Method fundamentally infeasible | Recommend returning to ground with feasibility evidence |
+| Reviewers disagree across rounds | Take the intersection of valid concerns, not the union |
+| MAX_ROUNDS without READY | Present best version with honest weaknesses. User decides |
+| Negative progress (2 rounds no improvement) | Suggest rethink. May need rollback to ground or explore |
+| Benchmark survey finds no suitable benchmarks | Either create a benchmark or reframe the claim. Document the gap. |
+| Dataset requirements exceed available resources | Reduce scope, use synthetic data, or find smaller public datasets |
+| Baseline code unavailable | Follow the decision tree in references/baseline-design.md |
+| User wants to adjust approved plan | Route to method-iterate: `skill(name="method-iterate")` for feedback-driven revision |
+| Context compaction mid-loop | Plan `.md` is the checkpoint. Re-read to recover state |
+| Phase rollback from experiment | Re-enter at Step 5 with experiment feedback. Method may need adjustment |
+
+---
+
+## Rollback Entry Points
+
+### From experiment (method doesn't work as expected)
+
+1. Read `research_state` to understand the rollback reason
+2. Read experiment results and failure analysis
+3. Re-enter at Step 2 (re-concretize) or Step 5 (re-review) depending on severity
+4. The failure information should drive a more focused revision
+5. If method is fundamentally broken → consider rollback to ground
+
+### From compose (evidence doesn't support claims)
+
+1. Read claim analysis showing which claims are unsupported
+2. Re-enter at Step 2 (experiment design) to redesign experiment requirements
+3. May need to narrow claims rather than add more experiments
+
+### From venue-cycle (reviewer demands method changes)
+
+1. Read external reviewer comments
+2. Re-enter at Step 2 or Step 5 depending on severity
+3. External reviewer feedback should be treated as high-priority valid feedback

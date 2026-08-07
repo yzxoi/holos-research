@@ -1,0 +1,285 @@
+# Lit Knowledge — Literature Knowledge Base Management
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL literature files under `.research/literature/`** — never write to project root.
+2. **Use `research_wiki(ingest_paper)` to register papers** — not `write` or `note_write`.
+3. **Downloaded PDFs → `.research/literature/papers/{slug}.pdf`**.
+4. **BibTeX → `.research/literature/references.bib`** (auto-managed by ingest_paper).
+5. **Subagents return text, not files.**
+6. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, naming conventions.
+7. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+8. **Git commit research artifacts** after modifying .research/ files.
+
+---
+
+## What This Skill Manages
+
+The `.research/literature/` directory contains:
+
+```
+literature/
+├── survey.md              ← Full survey narrative from explore phase
+├── by-topic/              ← Deep notes organized by sub-topic
+├── papers/
+│   ├── {slug}.yaml        ← Structured paper metadata (tool-managed)
+│   └── {slug}.md          ← Paper knowledge page (agent-edited)
+├── gap_map.yaml           ← Registered research gaps (tool-managed)
+├── edges.jsonl            ← Relationship graph (tool-managed)
+├── log.jsonl              ← Wiki mutation log (tool-managed)
+├── LIT_CONTEXT.md         ← Compressed context view (auto-generated)
+└── references.bib         ← BibTeX entries
+```
+
+**Scope boundary**: This skill manages PAPER KNOWLEDGE, RELATIONSHIPS, and GAPS. It does NOT manage research ideas, plans, experiments, claims, exhibits, or papers — those have their own tools. Ideas and experiments may appear as edge endpoints (e.g. `idea_003`, `exp_001`) but their entity files belong to their own tools.
+
+---
+
+## DAG Template
+
+```mermaid
+graph LR
+    load[Load Context] --> search[Search Literature]
+    search --> ingest[Ingest Papers]
+    ingest --> register_gaps[Register Gaps]
+    register_gaps --> link[Link Entities]
+    link --> writeback[Update Context View]
+```
+
+Nodes:
+- `load` — Load existing wiki state, gap map, and LIT_CONTEXT.md
+- `search` — Discover papers via scholar search, arXiv, or user input
+- `ingest` — Register papers via `ingest_paper` (creates .yaml, .md, bib entry)
+- `register_gaps` — Identify and register research gaps in gap_map.yaml
+- `link` — Add relationship edges between papers, ideas, gaps, and experiments
+- `writeback` — Run `query` to regenerate LIT_CONTEXT.md and `lint` for health check
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- Read current state via `research_state(action="overview")` before acting
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- When a human checkpoint is triggered, the system auto-generates a brief; use `research_checkpoint_brief(action="read")` to view it
+- Register papers via `research_wiki(action="ingest_paper")` — never via `write` or `note_write`
+- Run `research_wiki(action="query")` after batch mutations to keep LIT_CONTEXT.md current
+
+### Forbidden
+- Do not write literature files outside `.research/literature/`
+- Do not hand-edit the auto-generated Connections section in paper pages
+- Do not prune Failed Approaches / Banlist from LIT_CONTEXT.md
+
+### Checkpoints
+- papers_ingested
+- gaps_registered
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="literature gaps and papers")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## Tool Operations
+
+All operations go through the `research_wiki` tool.
+
+### `ingest_paper` — Register a new paper
+
+Creates three artifacts atomically:
+- `papers/{slug}.yaml` — structured metadata
+- `papers/{slug}.md` — knowledge page (template, you edit afterward)
+- BibTeX entry in `references.bib`
+
+```
+research_wiki(action="ingest_paper",
+  title="Factorized Gap in Discrete Diffusion LMs",
+  authors=["Chen, A.", "Smith, B."],
+  year=2025,
+  venue="ICML 2025",
+  arxiv="2501.12345",
+  tags=["discrete-diffusion", "factorization"],
+  relevance="core")
+```
+
+Required: `title`, `year`. Optional: `authors`, `venue`, `arxiv`, `doi`, `tags`, `relevance`, `cite_key`.
+
+When ingesting, pass content directly via the tool params (`thesis`, `method`, `key_results`, `limitations`, `project_relevance`). The .md is auto-populated from these — no separate edit needed for most papers. Use `edit` only for adding extra sections like "## Reusable Ingredients" or "## Open Questions".
+
+**Slug collision**: If the paper already exists, the tool returns the existing entry. Use `update_entry` to patch metadata instead.
+
+### `link` — Add a relationship edge
+
+Edges are the connective tissue of the knowledge graph.
+
+```
+research_wiki(action="link",
+  from="idea_003",
+  to="wang2024_d3pm",
+  edge_type="inspired_by",
+  evidence="Core mechanism adapts Wang's skip connection pattern")
+```
+
+Required: `from`, `to`, `edge_type`, `evidence`.
+
+Edge types and their semantics:
+
+| Type | Meaning | Typical direction |
+|------|---------|-------------------|
+| `extends` | Builds on prior work | new → old |
+| `contradicts` | Findings conflict | contradicter → contradicted |
+| `addresses_gap` | Targets a known gap | paper/idea → gap |
+| `inspired_by` | Derived from prior work | new → old |
+| `tested_by` | Validated by experiment | paper → experiment |
+| `supports` | Evidence supports claim | experiment → paper/idea |
+| `invalidates` | Evidence against | experiment → paper/idea |
+| `supersedes` | Replaces prior work | newer → older |
+
+Endpoint formats: paper slug (`chen2025_gap`), idea ID (`idea_003`), experiment ID (`exp_001`), plan ID (`plan_002`), gap ID (`G01`).
+
+### `register_gap` — Register a research gap
+
+```
+research_wiki(action="register_gap",
+  description="No existing method handles factorization in the residual branch without gradient detachment",
+  source_paper="austin2021_d3pm")
+```
+
+Required: `description`. Optional: `source_paper`.
+
+ID is auto-assigned (G01, G02, ...). After creating a gap, link ideas to it:
+```
+research_wiki(action="link", from="idea_002", to="G01", edge_type="addresses_gap", evidence="...")
+```
+
+### `update_entry` — Patch metadata
+
+Patch fields on an existing paper or gap without rewriting the full record.
+
+```
+research_wiki(action="update_entry", target_id="chen2025_gap", field="relevance", value="core")
+research_wiki(action="update_entry", target_id="G03", field="status", value="closed")
+```
+
+Supported paper fields: `relevance`, `tags`. Supported gap fields: `status`, `linked_ideas`.
+
+### `query` — Generate compressed context view
+
+Reads all papers, gaps, edges, and generates `LIT_CONTEXT.md` within the 8000-character budget.
+
+```
+research_wiki(action="query")
+```
+
+Call this after any batch of mutations to keep the view current. LIT_CONTEXT.md is what other skills read for a quick landscape overview.
+
+### `lint` — Health check
+
+Detects: orphan papers, stale gaps, dangling edges, sparse pages, duplicate bib entries.
+
+```
+research_wiki(action="lint")
+```
+
+Run after exploration rounds, before reviews, or when the library exceeds 15 papers.
+
+### `stats` — Overview statistics
+
+Paper count by relevance, gap count by status, edge count by type, last-updated timestamps.
+
+```
+research_wiki(action="stats")
+```
+
+---
+
+## Paper Page Schema
+
+Each `papers/{slug}.md` follows this structure:
+
+```markdown
+# {Title}
+
+## Thesis
+{One-line thesis: the single claim this paper stakes}
+
+## Problem / Gap
+{What specific problem does this paper address?}
+
+## Method
+{2-5 sentences on the core technique. Precise about mechanisms, not just names.}
+
+## Key Results
+{Quantitative results with numbers and datasets. No vague "significant improvement".}
+
+## Assumptions
+{What does the method assume? These are the conditions under which results hold.}
+
+## Limitations / Failure Modes
+{What the authors acknowledge. What conditions would cause the method to break?}
+
+## Reusable Ingredients
+{Components that could be repurposed: loss functions, architectures, training tricks.}
+
+## Open Questions
+{Questions the paper raises but does not answer. Seed points for new ideas.}
+
+## Connections
+{AUTO-GENERATED from edges — do not hand-edit.}
+
+## Relevance to This Project
+{Why does this paper matter for our specific research direction?}
+```
+
+The Connections section is populated from `edges.jsonl` on each `query` call. Manual edits will be overwritten.
+
+---
+
+## LIT_CONTEXT.md Format
+
+Hard budget: 8000 characters. Prune order (first to cut → last to cut):
+
+`time-critical signals > baselines > chains > open questions > key papers > gaps`
+
+**NEVER prune Failed Approaches / Banlist.**
+
+| Section | Budget | Content |
+|---------|--------|---------|
+| Project Direction | 300 chars | Research direction and current focus |
+| Key Papers | 2000 chars | Table: slug, one-line thesis, relevance, linked gaps |
+| Active Gaps | 1200 chars | Numbered list: gap ID, description, linked ideas |
+| Failed Approaches / Banlist | 1400 chars | Methods tried and failed, with reason. NEVER prune. |
+| Known Baselines | 800 chars | Table: dataset, metric, baseline score, source paper |
+| Open Questions | 800 chars | Unresolved questions from the literature |
+| Time-Critical Signals | 800 chars | New papers, trending methods, concurrent work (< 3 months) |
+| Active Chains | 700 chars | Connected edge sequences forming reasoning chains |
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| Slug collision on ingest | Paper already exists. Use `update_entry` to patch metadata. |
+| Dangling edge from lint | Referenced entity was deleted or ID is wrong. Fix the endpoint ID or use `edit` to remove the edge line from `.research/literature/edges.jsonl`. |
+| Sparse page from lint | Paper ingested but `.md` never filled. Read the paper (via `arxiv_download` to `.research/literature/papers/{slug}.pdf`, or `webfetch`) and use `edit` to fill in `.research/literature/papers/{slug}.md`. |
+| Stale gap from lint | Open > 30 days, no linked ideas. Link existing ideas or close if no longer relevant. |
+| Duplicate bib entries from lint | Keep the entry matching the slug, use `edit` to remove the other from `.research/literature/references.bib`. |
+| Query fails (corrupt data) | Inspect flagged YAML/JSONL file, fix syntax, re-run `query`. |
+| LIT_CONTEXT.md over budget | Auto-pruned by query action following the prune order above. |
+

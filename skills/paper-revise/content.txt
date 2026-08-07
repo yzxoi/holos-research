@@ -1,0 +1,527 @@
+# Paper Revise — Feedback-Driven Manuscript Revision
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL research files under `.research/`** — paper source files in `paper/` directory.
+2. **Exhibits via `research_exhibit`** — writes to `.research/exhibits/`.
+3. **Paper metadata via `research_paper`** — writes to `.research/manuscripts/`.
+4. **Subagents (scribe/editor) return text, not files.** Main agent writes to `paper/` using edit/write tools.
+5. **This is NOT paper-compose.** Do not rewrite the paper from scratch. Revise targeted sections based on specific feedback.
+6. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, naming conventions.
+7. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+8. **Git commit research artifacts** after modifying .research/ files.
+
+---
+
+Load references as needed from paper-compose:
+- `skill(name="paper-compose", reference="references/exhibit-guide.md")`
+- `skill(name="paper-compose", reference="references/writing-guide.md")`
+- `skill(name="paper-compose", reference="references/prose-quality.md")`
+- `skill(name="paper-compose", reference="references/latex-conventions.md")`
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: compose`
+- Paper exists with status `drafting` or `revising` (from `paper-compose`)
+- Feedback exists: user feedback, editor review, critic review, or audit findings
+
+## Constants — Read from `research_state(action="read")` config
+
+- `config.compose.max_revise_rounds` (default: 3) — Maximum revision iterations before presenting the best version
+
+## Output contract
+
+By the end of this skill:
+
+- Affected sections are revised in `paper/`
+- New/updated exhibits are registered and approved if needed
+- Paper review records document the revision
+- Paper is ready for another revision round, or for advance to `ready` → `audit`
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- Read current state via `research_state(action="overview")` before acting
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- When a human checkpoint is triggered, the system auto-generates a brief; use `research_checkpoint_brief(action="read")` to view it
+- Verify paper exists and is in `revising` status before making changes
+
+### Forbidden
+- Do not rewrite the paper from scratch — this is targeted revision only
+- Do not modify entity files directly — use the appropriate research tools
+- Do not ignore cascading changes when revising one section
+
+### Checkpoints
+- revision_plan_approved
+- changes_verified
+
+---
+
+## DAG Template
+
+```
+dagwrite({ nodes: [
+  { id: "load",       content: "Load paper, feedback, claims, exhibits",              status: "pending", deps: [] },
+  { id: "triage",     content: "Classify and prioritize feedback items",               status: "pending", deps: ["load"] },
+  { id: "revise",     content: "Revise affected sections",                             status: "pending", deps: ["triage"] },
+  { id: "exhibits",   content: "Update/create exhibits if needed",                     status: "pending", deps: ["triage"] },
+  { id: "quality",    content: "Prose quality audit on changed sections",              status: "pending", deps: ["revise", "exhibits"] },
+  { id: "coherence",  content: "Full-paper coherence check",                           status: "pending", deps: ["quality"] },
+  { id: "compile",    content: "Compile and verify",                                   status: "pending", deps: ["coherence"] },
+  { id: "present",    content: "Present revision summary, decide next",                status: "pending", deps: ["compile"] }
+]})
+```
+
+`revise` and `exhibits` run in parallel after triage — section text and figure/table updates are independent.
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="revision status")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## Step 0: Load Context
+
+### 0.1 Read state and paper
+
+```
+research_state(action="read")
+research_paper(action="list")
+research_claim(action="list")
+research_exhibit(action="list")
+```
+
+Identify the paper. Read its `.md` for editorial notes and the source files in `paper/`.
+
+### 0.2 Transition paper to revising
+
+If paper status is `drafting`:
+```
+research_paper(action="advance", id="paper_XXX", target_status="revising")
+```
+
+### 0.3 Identify the feedback
+
+Feedback comes from one of:
+
+**User feedback** — parsed from `$ARGUMENTS`:
+- "Introduction needs more motivation"
+- "Section 3 is too long"
+- "Add a comparison with method X in the results table"
+- "The conclusion overclaims"
+
+**Editor/critic reviews** — from `research_paper(action="list")`, read `.reviews.jsonl`:
+```
+Read .research/manuscripts/paper_XXX.reviews.jsonl
+```
+
+**Audit findings** — if redirected from compose (paper-audit):
+- Read `focus.reason` from state to understand what the audit found
+- Read paper review records for audit-specific findings
+
+**Venue reviewer feedback** — if redirected from compose (venue-cycle):
+- Read submission `.reviews.jsonl` for external reviewer comments
+- Read submission `.md` for rebuttal planning
+
+```
+dagpatch({ nodes: [{ id: "load", status: "completed" }] })
+```
+
+---
+
+## Step 1: Triage Feedback
+
+### 1.1 Classify each feedback item
+
+| Category | Scope | Action |
+|----------|-------|--------|
+| **narrative** | Section-level story/flow | Rewrite affected section(s) |
+| **technical** | Method/result accuracy | Fix specific claims/numbers |
+| **exhibit** | Figure/table issue | Update or create exhibit |
+| **prose** | Sentence/paragraph quality | Targeted prose polish |
+| **structural** | Section ordering, length | Reorganize |
+| **citation** | Missing/wrong references | Fix bibliography |
+| **format** | LaTeX, layout, venue compliance | Fix formatting |
+| **overclaim** | Claims stronger than evidence | Weaken language, add caveats |
+
+### 1.2 Prioritize
+
+```
+CRITICAL: overclaim, technical errors, missing results
+HIGH:     narrative gaps, structural issues, missing citations
+MEDIUM:   prose quality, exhibit improvements
+LOW:      formatting, minor phrasing
+```
+
+### 1.3 Map feedback to sections
+
+For each feedback item, identify which `paper/sections/*.tex` file(s) are affected.
+
+### 1.4 Check for cascading changes
+
+Some revisions cascade:
+- Changing a method detail in Section 3 → update method description in Abstract, Introduction, and Conclusion
+- Adding a new experiment result → update results table, results text, Abstract numbers, possibly Introduction claims
+- Weakening a claim → update everywhere that claim appears
+
+Map all cascade targets.
+
+```
+dagpatch({ nodes: [{ id: "triage", status: "completed" }] })
+```
+
+---
+
+## Step 2: Revise Sections
+
+### 2.1 For narrative/structural changes — use scribe
+
+For major section rewrites, delegate to scribe with targeted instructions:
+
+```
+task(subagent_type="scribe", background=true):
+  "Revise the [section name] section of this paper.
+
+   CURRENT TEXT:
+   [paste current section content]
+
+   FEEDBACK TO ADDRESS:
+   1. [specific feedback item + where it applies]
+   2. [specific feedback item + where it applies]
+
+   CLAIMS THIS SECTION MUST SUPPORT:
+   [list final claims relevant to this section]
+
+   CONSTRAINTS:
+   - Do NOT change content that isn't targeted by the feedback
+   - Maintain consistency with the rest of the paper
+   - Keep within [N] pages for this section
+   - [venue-specific style requirements]
+
+   Return the revised section text."
+```
+
+After receiving the revised text, write it to `paper/sections/XXX.tex` using the `edit` tool. Prefer targeted edits over full file replacement when the changes are localized.
+
+### 2.2 For technical corrections — edit directly
+
+For fixing numbers, equations, or specific technical claims:
+
+```
+edit(filePath="paper/sections/results.tex",
+  oldString="achieves 18.3 PPL",
+  newString="achieves 19.8 ± 0.3 PPL")
+```
+
+Cross-check against experiment records:
+```
+research_experiment(action="compare", ids=[relevant experiment IDs])
+```
+
+### 2.3 For overclaim fixes — weaken with precision
+
+Read the claim object:
+```
+research_claim(action="trace", id="claim_XXX")
+```
+
+If the paper text is stronger than the claim's registered statement or caveats:
+- Replace absolute claims with hedged versions
+- Add caveat phrases matching the claim's `caveats` field
+- Ensure Discussion section acknowledges the limitation
+
+### 2.4 Handle cascading changes
+
+After the primary revision, walk through all cascade targets identified in Step 1.4:
+
+- Abstract: update if any numbers or claims changed
+- Introduction: update if contribution statement changed
+- Conclusion: update if claims were narrowed
+- Cross-references: verify all `\ref{}` and `\cite{}` still valid
+
+### 2.5 Record section status changes
+
+```
+research_paper(action="update", id="paper_XXX",
+  sections=[{name: "results", status: "revised"}, {name: "introduction", status: "revised"}])
+```
+
+```
+dagpatch({ nodes: [{ id: "revise", status: "completed" }] })
+```
+
+---
+
+## Step 3: Update Exhibits
+
+Run in parallel with Step 2 if the exhibit changes are independent.
+
+### 3.1 For existing exhibits that need updating
+
+If data changed (new experiment results):
+
+```
+task(subagent_type="master", background=true):
+  "Update the generation script for [exhibit description].
+   Previous data: [old experiment IDs and metrics]
+   New data: [new experiment IDs and metrics]
+   Script location: [paper/scripts/xxx.py]
+   Output to: [paper/figures/xxx.pdf]
+   Changes needed: [specific changes]
+   Return a summary of what was changed."
+```
+
+After regeneration:
+```
+research_exhibit(action="render", id="exh_XXX", output_path="paper/figures/xxx.pdf")
+research_exhibit(action="verify", id="exh_XXX")
+```
+
+### 3.2 For new exhibits needed
+
+If feedback requires a new figure or table:
+
+```
+research_exhibit(action="create",
+  title="...", kind="figure|table", label="fig:xxx|tab:xxx",
+  sources={experiments: [...], claims: [...], script: "...", data_path: "..."})
+```
+
+Generate, render, verify, approve following the paper-compose exhibit pipeline.
+
+### 3.3 For exhibits to drop
+
+If a revision removes a figure or table:
+```
+research_exhibit(action="drop", id="exh_XXX", reason="Removed during revision: [reason]")
+```
+
+Update the paper's LaTeX to remove the reference.
+
+```
+dagpatch({ nodes: [{ id: "exhibits", status: "completed" }] })
+```
+
+---
+
+## Step 4: Quality Audit (Changed Sections Only)
+
+Do NOT audit the entire paper — only the sections that were modified. Follow reviewer independence protocol from `peer-review` skill for all review dispatches.
+
+### 4.1 Prose quality on changed sections
+
+For each revised section, apply the 5-pass audit from `references/prose-quality.md`:
+
+```
+task(subagent_type="editor", background=true):
+  "Audit this REVISED section for prose quality. Only this section was changed — the rest of the paper is stable.
+
+   REVISED TEXT:
+   [paste revised section]
+
+   ORIGINAL TEXT (for comparison):
+   [paste original section]
+
+   Check:
+   1. Clutter: filler phrases, redundancies, AI-isms introduced in revision
+   2. Active voice: passive constructions in new text
+   3. Sentence architecture: new sentences > 40 words
+   4. Keyword consistency: technical terms still match the rest of the paper
+   5. Tone consistency: the revised section still sounds like the same paper
+
+   Return specific fixes with line references."
+```
+
+Apply fixes with the `edit` tool.
+
+### 4.2 Numerical integrity on changed sections
+
+If any numbers changed, verify:
+
+```
+task(subagent_type="auditor", background=true):
+  "Verify numerical consistency in these revised sections:
+   [paste sections with changed numbers]
+
+   Experiment records:
+   [list relevant experiment IDs and their metrics]
+
+   Check: do all numbers in the text match the experiment records?"
+```
+
+```
+dagpatch({ nodes: [{ id: "quality", status: "completed" }] })
+```
+
+---
+
+## Step 5: Coherence Check
+
+After section-level revisions, verify the paper still reads as a coherent whole.
+
+```
+task(subagent_type="editor", background=true):
+  "Check full-paper coherence after targeted revisions.
+
+   SECTIONS THAT CHANGED: [list]
+   NATURE OF CHANGES: [summary]
+
+   Read the full paper and check:
+   1. Does the abstract still accurately summarize the paper?
+   2. Do introduction claims match what results actually show?
+   3. Are cross-references intact? (no broken \\ref, no dangling \\cite)
+   4. Is there any contradiction between revised and unrevised sections?
+   5. Is the writing style consistent throughout?
+
+   Report: COHERENT / ISSUES with specific locations."
+```
+
+Record:
+```
+research_paper(action="review", id="paper_XXX",
+  reviewer="editor", focus="post-revision coherence",
+  verdict="pass|revise",
+  summary="...",
+  review_body="...")
+```
+
+If ISSUES found: fix them now. These are typically small cascading fixes caught by the coherence check.
+
+```
+dagpatch({ nodes: [{ id: "coherence", status: "completed" }] })
+```
+
+---
+
+## Step 6: Compile and Verify
+
+```bash
+cd paper && latexmk -pdf -interaction=nonstopmode main.tex 2>&1 | tail -30
+```
+
+Check:
+- Compilation succeeds
+- No undefined references
+- Page count within venue limit
+- No overfull hboxes in revised sections
+
+If compilation fails: fix LaTeX errors, recompile.
+
+```
+dagpatch({ nodes: [{ id: "compile", status: "completed" }] })
+```
+
+---
+
+## Step 7: Present and Decide
+
+### 7.1 Revision summary
+
+Present:
+- Feedback items addressed: [N] / [total]
+- Sections modified: [list]
+- Exhibits updated/created/dropped: [list]
+- Remaining issues: [if any items couldn't be addressed]
+
+### 7.2 Decision routing
+
+**If all feedback addressed and paper is coherent:**
+
+```
+research_paper(action="advance", id="paper_XXX", target_status="ready")
+```
+
+Depending on what triggered the revision:
+- From user feedback during compose → stay in `compose` phase, ready for paper-audit
+- From audit → return to compose (invoke paper-audit)
+- From venue-cycle → return to venue-cycle
+
+**If more revision needed:**
+
+Re-enter this skill with remaining feedback. The paper stays in `revising` status.
+
+**If revision reveals deeper issues:**
+
+- Unsupported claim found → `research_state(action="redirect", target_phase="compose", reason="...")` → then invoke claim-build skill
+- Missing experiment → `research_state(action="redirect", target_phase="experiment", reason="...")`
+- Method flaw → `research_state(action="redirect", target_phase="design", reason="...")`
+
+### 7.3 Record the revision
+
+```
+research_timeline(action="append_free_event", event_type="milestone",
+  summary="Paper revised: [N] sections updated, [M] exhibits changed. Status: [ready/revising/rollback].",
+  event_refs=["paper_XXX", ...exhibit IDs...])
+```
+
+```
+dagpatch({ nodes: [{ id: "present", status: "completed" }] })
+```
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after triage (Step 1) to confirm revision priorities. Pause after revision (Steps 2-3) to let user review changes. Pause at decision (Step 7).
+- **guided**: Pause at decision (Step 7) only.
+- **autonomous**: Run full workflow. Pause only if revision reveals a rollback-level issue.
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| No paper exists (paper-compose never ran) | Redirect to paper-compose: `skill(name="paper-compose")` |
+| Feedback is contradictory | Prioritize: user > external reviewer > editor > critic. Record the contradiction. |
+| Exhibit regeneration fails | Check data availability. If experiment data is missing, note as unresolvable without more experiments. |
+| Compilation breaks after revision | The revision introduced a LaTeX error. Read the error, fix the specific issue. |
+| Revision makes the paper worse | Revert using git: `git checkout -- paper/sections/XXX.tex`. Try a different approach to the feedback. |
+| Page count exceeded after additions | Move content to supplementary. Compress tables. Tighten prose. Do NOT remove claims. |
+| Context compaction | Reload from `research_paper(action="list")` + read paper source files. The `paper/` directory is the checkpoint. |
+
+---
+
+## Rollback Entry Points
+
+### From audit (issues found)
+
+1. Read audit findings from paper review records
+2. Classify by triage categories
+3. Re-enter at Step 1 with audit findings as feedback
+
+### From venue-cycle (reviewer demands)
+
+1. Read external reviewer comments from submission review records
+2. Map each demand to paper sections
+3. Re-enter at Step 1 with reviewer comments as feedback
+4. External reviewer feedback has highest priority
+
+### Multiple revision rounds
+
+This skill supports multiple invocations. Each call:
+1. Reads the current paper state
+2. Processes the new feedback
+3. Makes targeted changes
+4. Verifies coherence
+
+The paper transitions: `drafting → revising → ready` (can go back to `revising` from `ready` via `research_paper(action="advance", target_status="revising")` if reopened).

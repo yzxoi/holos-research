@@ -1,0 +1,8 @@
+node_modules/
+dist/
+bun.lock
+__pycache__/
+.test-tmp/
+coverage/
+*.synergy-plugin.tgz
+*.sig

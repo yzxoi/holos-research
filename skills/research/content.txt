@@ -1,0 +1,441 @@
+# Research — Global Research Routing and Phase Management
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL research files under `.research/`** — never write to project root.
+2. **If `.research/` does not exist**, call `research_init(project="<name>")` first. This automatically sets `focus.phase` to `explore`.
+3. **Use `research_state(action="read")` to determine current phase** before routing.
+4. **Do NOT use `note_write` for research content** — use research_* tools.
+5. **Do NOT directly edit `.research/state.yaml`** — always use `research_state` actions to modify state.
+6. **Follow AGENTS.md** at project root — it contains code discipline, tool usage rules, and directory structure. If you don't follow it, stop and re-read it.
+7. **Use skills and tools aggressively** — load phase skills, record to timeline, ingest papers to wiki, track experiments. If you are working without calling research tools, STOP.
+8. **Every session ends with** `research_state(action="brief")` to update AGENTS.md dynamic state.
+
+---
+
+## DAG Template
+
+```mermaid
+graph LR
+    load[Load State] --> assess[Assess Request]
+    assess --> route[Route to Phase]
+    route --> dispatch[Dispatch Skill]
+    dispatch --> monitor[Monitor Progress]
+    monitor --> decide[Decide: Advance or Rollback]
+```
+
+Nodes:
+- `load` — Read `research_state`, check staleness, recover session context
+- `assess` — Align user request with current phase, detect mismatches
+- `route` — Select initial or iterate skill based on existing output and request type
+- `dispatch` — Load and execute the chosen phase skill
+- `monitor` — Track gate checks, loop detection, and rollback patterns
+- `decide` — Advance to next phase, rollback on failure, or block on external dependency
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- Read current state via `research_state(action="read")` before routing
+- When a human checkpoint is triggered, the system auto-generates a brief; use `research_checkpoint_brief(action="read")` to view it
+- Verify phase exit conditions are met before advancing to the next phase
+- Load the appropriate phase skill — never execute a phase directly
+
+### Forbidden
+- Do not skip phases or gate checks autonomously — only the user can override gates explicitly
+- Do not silently override the stored focus phase — ask for clarification on misalignment
+- Do not loop indefinitely — enforce the 3-rollback escalation rule
+
+### Checkpoints
+- phase_exit_conditions_met
+- transition_validated
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="project phase and routing")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## Phase Routing Table
+
+Each phase has an **initial skill** (first-time work from scratch) and an **iterate skill** (feedback-driven refinement on existing output). The router decides which one to load.
+
+| `focus.phase` | Initial Skill | Iterate Skill | When to Use Iterate |
+|---------------|--------------|---------------|---------------------|
+| _(no `.research/`)_ | `research_init` | — | — |
+| `explore` | `idea-explore` | `idea-refine` | Ideas exist but need improvement |
+| `ground` | `novelty-ground` | — | (rollback to explore if grounding fails) |
+| `design` | `method-design` | `method-iterate` | Plan exists but needs revision |
+| `realize` | `method-realize` | `method-iterate` | Implementation feedback or failed code review |
+| `experiment` | `experiment-cycle` | `experiment-iterate` | Experiments completed but results need optimization |
+| `compose` | `claim-build` → `paper-compose` → `paper-audit` → `venue-cycle` | `paper-revise` | See compose disambiguation below |
+
+### Compose Phase Disambiguation
+
+The compose phase has multiple sub-skills. Route by checking what exists:
+
+1. **No claims exist** → `claim-build` (build claims from experiment results first)
+2. **Claims exist but no paper** → `paper-compose` (write the manuscript)
+3. **Paper exists and needs audit** → `paper-audit` (pre-submission quality check)
+4. **Paper is ready for submission** → `venue-cycle` (submit and manage review)
+5. **Paper needs revision** → `paper-revise` (targeted fixes from feedback)
+
+<!-- Cross-cutting: invoke project-archive manually when research is complete -->
+
+## Cross-Cutting Skills (invoke manually at any phase)
+
+| Skill | When to Use |
+|-------|-------------|
+| `peer-review` | When you need structured adversarial evaluation at any stage |
+| `lit-knowledge` | When you need to ingest papers, manage gaps, or query literature |
+| `project-archive` | When research is complete and needs to be frozen |
+
+---
+
+## Step 1: Read State
+
+```
+research_state(action="read")
+```
+
+Extract:
+- `focus.phase` — current phase
+- `focus.summary` — what is happening
+- `focus.reason` — why we are here
+- `focus.blocked_on` — any blockers
+- `focus.next` — planned next step
+- `focus.refs` — current objects of interest
+- `config.participation_mode` — checkpoint policy
+
+If `.research/` does not exist:
+```
+research_init(project="<ask the user or infer from context>")
+```
+
+After init returns, `focus.phase` is already set to `explore` — proceed directly to Step 4 (load the explore skill).
+
+### 1.1 Session Recovery
+
+If this is a new session (e.g. after context compaction):
+
+1. Read `research_state(action="read")` for high-level position
+2. Read `research_timeline(action="read", last=20)` for recent activity
+3. AGENTS.md at project root is auto-loaded (contains dynamic state + rules) — no manual read needed
+4. Present a brief status update to the user before proceeding
+
+### 1.2 Staleness Check
+
+Check the `updated` field in state.yaml:
+
+- **< 24 hours**: Fresh. Proceed normally.
+- **1-7 days**: Mildly stale. Note the gap but proceed.
+- **> 7 days**: Stale. Warn the user:
+  - "This project hasn't been active since [date]."
+  - Suggest: quick literature refresh (new concurrent work?)
+  - Suggest: review whether current plan assumptions still hold
+  - Ask: resume from current phase, or pivot?
+
+### 1.3 Request-State Alignment
+
+If the user's request doesn't match the stored focus phase, do NOT silently override. Ask:
+
+- "The project is currently in [phase], but you're asking about [different thing]. Should I continue from [phase], or switch to [what you're asking]?"
+
+---
+
+## Step 2: Gate Check Before Transition
+
+Before advancing to the next phase, verify the exit conditions are met.
+
+### Phase Exit Conditions
+
+| From → To | Exit Condition | How to Verify |
+|-----------|---------------|---------------|
+| explore → ground | At least one idea is `selected` | `research_idea(action="list")` — check for status `selected` |
+| ground → design | Idea has stable contribution statement, reviewer verdict `pass` | Read idea `.md` Positioning section + `.reviews.jsonl` |
+| design → experiment | At least one plan is `active` | `research_plan(action="list")` — check for status `active` |
+| experiment → compose | Sufficient experiments completed (kill set passed); invoke claim-build skill | `research_experiment(action="list")` — check completed count vs plan's kill set |
+| compose → compose | Core claims `supported` or `qualified` and marked `final`; invoke paper-compose | `research_claim(action="list")` — check for `final` status claims |
+| compose → compose | Paper status `ready`, core exhibits `approved`; invoke paper-audit | `research_paper(action="list")` + `research_exhibit(action="list")` |
+| compose → compose | All audit checks passed; invoke venue-cycle skill | Read paper `.reviews.jsonl` for audit round verdict |
+| compose → archive | Submission `accepted` or `closed` | `research_submission(action="list")` |
+
+If exit conditions are NOT met:
+- Report what's missing
+- Stay in the current phase
+- Suggest specific actions to meet the conditions
+- In autonomous mode: report the gap and proceed only if the user explicitly overrides
+
+---
+
+## Step 3: Execute Transition
+
+### Forward Advance (normal progression)
+
+```
+research_state(action="advance",
+  target_phase="<next phase>",
+  summary="<one-line description of what's happening>",
+  reason="<why this transition is happening>",
+  refs_idea="<if applicable>",
+  refs_plan="<if applicable>",
+  refs_experiments=["<if applicable>"],
+  refs_claims=["<if applicable>"],
+  refs_paper="<if applicable>",
+  refs_submission="<if applicable>")
+```
+
+### Rollback (backward transition)
+
+```
+research_state(action="redirect",
+  target_phase="<earlier phase>",
+  summary="<what needs to happen in the earlier phase>",
+  reason="<why we're rolling back>",
+  ...)
+```
+
+Common rollback scenarios:
+
+| From | To | Reason |
+|------|----|--------|
+| ground → explore | Novelty collapsed, need new direction |
+| design → ground | Method design revealed unclear contribution boundary |
+| experiment → design | Method fundamentally doesn't work |
+| compose → experiment | Evidence insufficient, need more experiments (invoke claim-build to narrow first if possible) |
+| compose → compose | Writing exposed unsupported claims; invoke claim-build skill |
+| compose → compose | Narrative/format issues; invoke paper-audit skill |
+| compose → compose | Overclaim or integrity issues; invoke claim-build skill |
+| compose → experiment | Reviewer demands supplementary experiments; via venue-cycle |
+| compose → compose | Reviewer demands narrower claims; invoke claim-build skill via venue-cycle |
+| compose → compose | Reviewer demands rewrite; invoke paper-compose via venue-cycle |
+| compose → design | Reviewer finds fundamental method flaw; via venue-cycle |
+
+### Rollback Decision Gate
+
+Before rolling back from experiment phase, apply this decision framework:
+
+**Stay in experiment (iterate) when:**
+- Results are improving but not yet at target — more tuning/hyperparameter search may work
+- The method works on some data splits but not others — need different features or regularization, not a new method
+- Individual experiments failed but the overall direction is sound — fix engineering issues and retry
+- A new small variation (different loss function, feature subset, post-processing) could help — register as a new experiment in the same plan
+
+**Rollback to design when:**
+- The fundamental mechanism is flawed — no amount of tuning helps (e.g., model systematically predicts wrong ordering regardless of features)
+- You've accumulated ≥3 opportunity_spotted journal notes that point to a genuinely different approach, not just parameter variations
+- All experiment variants fail in the same way, suggesting the design assumptions are wrong
+- You need to change the model architecture or loss function family, not just hyperparameters
+
+| L1-L3 diagnosis (code/data/eval bugs) | **Rollback to realize** — fix implementation bugs, then re-enter experiment |
+
+**Rollback to ground/explore when:**
+- The contribution itself is in question — the problem formulation may be wrong
+- You've discovered the research direction is scooped or the problem is ill-posed
+- The user explicitly wants a different research direction
+
+| Stagnation: max_optimize_rounds reached, no improvement | **Rollback to design** — the bottleneck is likely in the method, not the recipe |
+
+**Process**: After completing a full experiment batch, review `research_journal(action="query", kind="opportunity_spotted")` for accumulated notes. If any point to rollback, present the case to the user with evidence before executing the redirect.
+
+### Compose-Phase Rollback Decision Gate
+
+Before rolling back from compose phase:
+
+| Scenario | Decision |
+|----------|----------|
+| Claims unsupported but experiments promising | **Stay in compose** — narrow claims, strengthen existing evidence |
+| Claims unsupported AND experiments weak | **Rollback to experiment** — run targeted experiments for key claims |
+| Method fundamentally flawed | **Rollback to design** — redesign method before re-experimenting |
+| Literature gap discovered | **Rollback to ground** — fill knowledge gap, then redesign |
+| Stagnation: max_revise_rounds reached | **Rollback to experiment** — get more data to break the deadlock |
+
+### Block
+
+```
+research_state(action="block", blocked_on="<what's blocking progress>")
+```
+
+Use when progress cannot continue without external input (user decision, compute availability, data access, etc.).
+
+### Resume
+
+```
+research_state(action="resume", next="<what to do now>")
+```
+
+Clear the blocker and continue.
+
+---
+
+## Step 4: Route to Initial or Iterate Skill
+
+For phases with iterate skills (`explore`, `design`, `realize`, `experiment`, `compose`), decide which skill to load based on whether prior output exists and whether the request is for refinement.
+
+### 4.1 Routing Decision
+
+Check these conditions in order:
+
+**Route to iterate skill when ALL of:**
+1. The phase already has output (ideas exist for explore, plan exists for design, implementation exists for realize, completed experiments exist for experiment, paper draft exists for compose)
+2. The user's request or the re-entry reason indicates refinement, not a fresh start. Signals: "optimize", "improve", "refine", "not good enough", "adjust", rollback from a later phase, or explicit feedback on existing output.
+
+**Route to initial skill when ANY of:**
+1. No prior output exists for this phase (first entry)
+2. The user explicitly requests starting over ("regenerate", "start fresh", "new direction")
+3. The phase was re-entered via `redirect` with a reason that invalidates all prior output
+
+### 4.2 Load the skill
+
+```
+// explore phase
+if iterate_conditions_met:
+  skill(name="idea-refine")
+else:
+  skill(name="idea-explore")
+
+// design phase
+if iterate_conditions_met:
+  skill(name="method-iterate")
+else:
+  skill(name="method-design")
+
+// realize phase
+if iterate_conditions_met:
+  skill(name="method-iterate")
+else:
+  skill(name="method-realize")
+
+// experiment phase
+if iterate_conditions_met:
+  skill(name="experiment-iterate")
+else:
+  skill(name="experiment-cycle")
+
+// compose phase — route based on what exists
+if iterate_conditions_met:
+  skill(name="paper-revise")
+else if no claims exist:
+  skill(name="claim-build")
+else if claims exist but no paper:
+  skill(name="paper-compose")
+else if paper exists and needs audit:
+  skill(name="paper-audit")
+else if paper is ready for submission:
+  skill(name="venue-cycle")
+
+// cross-cutting skills — invoke manually at any phase
+skill(name="peer-review")      // adversarial evaluation
+skill(name="lit-knowledge")    // literature management
+skill(name="project-archive")  // freeze research record
+```
+
+Follow the loaded skill's defined workflow. Do NOT execute the phase directly — the skill contains the detailed procedure.
+
+---
+
+## Step 5: Loop Detection
+
+Track backward transitions. If the same rollback occurs 3+ times:
+
+1. Show the loop pattern: which phases, how many times, what reasons
+2. Explain why progress is stalled
+3. Recommend one of:
+   - **Pivot**: Change the research direction entirely
+   - **Reduce scope**: Narrow the claims to what current evidence supports
+   - **Seek expert input**: The problem may require domain expertise beyond what the system provides
+   - **Park the project**: Shelve and revisit later with new insights
+
+Record the loop detection:
+```
+research_timeline(action="append_free_event", event_type="decision",
+  summary="Loop detected: [phase X] entered N times. Recommending: [action]",
+  event_refs=[...])
+```
+
+---
+
+## Step 6: Generate Brief (on demand)
+
+When the user asks for a project summary, or when transitioning between phases:
+
+```
+research_state(action="brief")
+```
+
+This updates the dynamic state section in `AGENTS.md` at the project root with:
+- Project name and direction
+- Current phase and focus
+- Recent activity (from timeline)
+- Key references (current idea, plan, experiments, claims)
+- Next steps
+
+---
+
+## Participation Mode Behavior
+
+### `collaborative` (default)
+- Pause at EVERY phase transition
+- Wait for explicit user approval before advancing
+- Report what happened and what is recommended next
+- Present rollback options when things go wrong
+
+### `guided`
+- Pause at: idea selection, plan approval, claim finalization, paper submission
+- Auto-proceed through: survey, experiment submission, monitoring, result collection
+- Report progress but don't wait at intermediate steps
+
+### `autonomous`
+- Only pause on: anomalies (all experiments fail, loop detected), critical decisions (submit paper, retract claim)
+- Auto-proceed through everything else
+- Provide periodic summaries but don't wait
+
+---
+
+## Anti-Patterns
+
+1. **Do NOT skip phases.** Even if the user says "just run the experiment", verify there is an active plan first. If not, explain and offer to create one.
+
+2. **Do NOT loop indefinitely.** Enforce the 3-rollback escalation rule.
+
+3. **Do NOT override user decisions.** If the user rejects an idea or plan, move forward with alternatives.
+
+4. **Do NOT commit prematurely.** Explore should produce ≥5 ideas before selection. Method-design should have ≥1 review round. Do not take shortcuts that skip quality gates.
+
+5. **Do NOT silently change scope.** If a rollback leads to significantly different experiments than the original plan, create a new plan (with `supersedes`) rather than silently expanding the old one.
+
+6. **Do NOT assume continuity.** After a dormant period, re-verify the research landscape hasn't shifted before resuming.
+
+7. **Do NOT pivot mid-experiment batch.** When running experiments, you will discover new ideas or alternative approaches. Record them as journal notes (`research_journal(action="append", kind="opportunity_spotted", note="...")`) but do NOT act on them until the current experiment batch is fully resolved (all experiments complete or failed). Only then review accumulated notes and decide: iterate within experiment, or formally redirect to an earlier phase. Mid-batch pivots cause direction drift and orphaned experiments.
+
+8. **Do NOT improvise new experiments outside the plan.** Every experiment must trace back to the active plan via `plan_ref`. If you spot something worth trying that isn't in the plan, record it as an opportunity note — don't register and run it immediately. After the batch, if the opportunity is compelling, update the plan first (via `method-iterate` skill), then register experiments from the updated plan.
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| No `.research/` directory | Call `research_init(project="<name>")` — this sets focus to explore automatically |
+| State file corrupt | Report to user. Attempt to reconstruct from timeline. |
+| Phase skill not found | Report the missing skill. Fall back to manual guidance. |
+| User request misaligns with state | Ask for clarification. Do not silently override. |
+| All experiments failed | Block the project. Analyze whether it's an engineering issue (fixable) or a method issue (rollback to design). |
+| Budget exhausted | Block with clear resource requirement. Suggest: lower priority jobs, smaller experiments, or pause. |
+| Project dormant > 30 days | Suggest: quick literature refresh, re-check assumptions, ask user whether to resume or archive. |

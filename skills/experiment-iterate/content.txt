@@ -1,0 +1,554 @@
+# Experiment Iterate — Result-Driven Optimization Cycle
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL files under `.research/`** — never write to project root.
+2. **Experiments via `research_experiment(action="register")`** — writes to `.research/experiments/`.
+3. **Commit code before submitting any experiment** — see `experiment-cycle` references/git-discipline.md.
+4. **Subagents return text, not files.**
+5. **This is NOT experiment-cycle.** Do NOT re-register the entire experiment matrix from scratch. Only register incremental variations (1-3 per optimization round). Do NOT create new plans — the plan is fixed. Focus on: hyperparameter tuning, data augmentation, loss function variants, and ensemble strategies that build on completed experiments.
+6. **Evidence authenticity**: Optimization experiments must be evidence-grade (full benchmark, official evaluator). Prototypes and pilots cannot be iterated into claims — re-register at evidence scale.
+7. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, naming conventions.
+8. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+9. **Git commit research artifacts** after modifying .research/ files.
+10. **NO MID-BATCH PIVOT:** If you spot a better idea or approach mid-batch, record it as `research_journal(action="append", kind="opportunity_spotted")` and finish the current batch. Review after completion. Do NOT redirect to design/ground/explore mid-batch.
+- **Gate 1 (Code Gate):** Before registering an optimized experiment, run `inspector` audit on changed code. Fix all issues before proceeding.
+- **Gate 2 (Design Gate):** Before registering an optimized experiment, verify the experiment design aligns with the active plan. Run `auditor` check on red-lines (R1-R7). Fix violations before proceeding.
+- **Image Readiness:** Before submitting to compute, verify the project image is current. Run the same image readiness check as experiment-cycle Step 0.5.
+- **Declare red-lines:** Every experiment registration must include `redlines` parameter listing the red-lines it must not violate (e.g., R1_metric_immutability, R2_no_data_leak). Verify compliance before marking complete.
+
+---
+
+Load `experiment-cycle` references as needed:
+- `skill(name="experiment-cycle", reference="references/git-discipline.md")` — code traceability
+- `skill(name="experiment-cycle", reference="references/auto-retry.md")` — failure recovery
+- `skill(name="experiment-cycle", reference="references/python-env.md")` — environment management
+- `skill(name="experiment-cycle", reference="references/inspire-compute.md")` — workspace selection, image building, pre-build strategy
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: experiment`
+- At least one round of experiments has completed
+- Results are insufficient: metrics below expectations, or specific optimization opportunities identified
+
+## Output contract
+
+By the end of this skill:
+
+- New experiments are registered, submitted, and completed (or in progress with watches set)
+- Cross-experiment comparison shows delta from previous round
+- A clear decision is made: results are sufficient → advance to `compose`, iterate again, or rollback to `design`
+- All experiment records link to their predecessors for traceability
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- Read current state via `research_state(action="overview")` before acting
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- When a human checkpoint is triggered, the system auto-generates a brief; use `research_checkpoint_brief(action="read")` to view it
+- Register experiments via `research_experiment(action="register")` — never as loose files
+- Verify config adequacy before diagnosing the method (mandatory pre-check)
+
+### Forbidden
+- Do not submit experiments with uncommitted code — git discipline is non-negotiable
+- Do not iterate prototype/pilot experiments into claims — re-register at evidence scale
+- Do not claim improvement from single-seed results
+
+### Checkpoints
+- iteration_decision_recorded
+- experiment_updated
+
+---
+
+## DAG Template
+
+```
+dagwrite({ nodes: [
+  { id: "analyze",   content: "Cross-experiment analysis of current results",          status: "pending", deps: [] },
+  { id: "diagnose",  content: "Root cause analysis + optimization targets",             status: "pending", deps: ["analyze"] },
+  { id: "design",    content: "Design adjusted experiments",                            status: "pending", deps: ["diagnose"] },
+  { id: "submit",    content: "Git commit + submit new experiment batch",               status: "pending", deps: ["design"] },
+  { id: "monitor",   content: "Monitor execution, set watches",                         status: "pending", deps: ["submit"] },
+  { id: "collect",   content: "Collect results, record metrics",                        status: "pending", deps: ["monitor"] },
+  { id: "compare",   content: "Compare old vs new: statistical tests + delta analysis", status: "pending", deps: ["collect"] },
+  { id: "decide",    content: "Sufficient → advance / Iterate → loop / Broken → rollback", status: "pending", deps: ["compare"] }
+]})
+```
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="experiment iteration")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## Step 0: Analyze Current Results
+
+### 0.1 Load context
+
+```
+research_state(action="read")
+research_plan(action="list")       // active plan
+research_experiment(action="list") // all experiments
+```
+
+Read the active plan's `.md` — especially the kill set, sufficient set, and expected metrics.
+
+### 0.2 Cross-experiment comparison
+
+```
+research_experiment(action="compare", ids=[all completed experiment IDs])
+```
+
+### 0.3 Gap analysis
+
+Build a results landscape:
+
+| Experiment | Group | Status | Key Metric | Expected | Actual | Delta | Assessment |
+|-----------|-------|--------|------------|----------|--------|-------|------------|
+| exp_001 | main | completed | PPL | < 20.0 | 21.3 | +1.3 | Below target |
+| exp_002 | baseline | completed | PPL | — | 23.5 | — | Reference |
+| exp_003 | ablation | completed | PPL | > exp_001 | 20.8 | -0.5 | Ablation shows component helps |
+
+### 0.4 Identify the optimization type
+
+- **Hyperparameter optimization**: core method is right, but training recipe needs tuning (LR, batch size, schedule, warmup)
+- **Architecture tuning**: method concept is right, but implementation details need adjustment (layer count, hidden dim, attention heads)
+- **Training recipe change**: data sampling, loss weighting, curriculum, augmentation
+- **Bug fix**: the code has an error that explains the suboptimal results
+- **Scale adjustment**: method works but needs different scale (more data, more compute, longer training)
+
+```
+dagpatch({ nodes: [{ id: "analyze", status: "completed" }] })
+```
+
+---
+
+## Step 1: Root Cause Diagnosis
+
+### 1.0 Config Adequacy Check (MANDATORY — before diagnosing the method)
+
+Before diagnosing the method or results, verify the experimental configuration was adequate. A failed experiment due to inadequate configuration is a setup failure, not a method failure.
+
+Check:
+- Output limits: Were generations truncated? If max_tokens was set too low for the task, results are invalid regardless of the method.
+- Model scale: Was the model large enough for the claim? A claim about "LLM inference" tested only on a 0.5B model may not be credible.
+- Batch size: Was it appropriate for the hardware? OOM failures from oversized batches are infrastructure issues.
+- Seeds: Were enough seeds run for statistical validity? Single-seed results cannot support strong claims.
+- Data quality: Were there issues with the dataset (corrupted files, wrong splits, preprocessing bugs)?
+- Hyperparameters: Were learning rate, schedule, and other hyperparameters in reasonable ranges?
+- Evidence authenticity: Is this experiment using real data and official evaluators? If the experiment was registered as prototype or pilot, its results cannot be iterated into claims. Re-register at evidence scale before investing optimization effort.
+
+If the configuration was inadequate, fix it and re-run BEFORE diagnosing the method. Do not analyze results from a broken experiment.
+
+### 1.1 Self-diagnosis
+
+Before calling subagents, check the obvious:
+- Read experiment logs: `inspire_logs(job_id="...", lines=200)`
+- Check GPU metrics: `inspire_metrics(job_id="...", time_range="1h", mode="summary")`
+- Look for: NaN losses, gradient explosions, training plateaus, data loading bottlenecks
+
+### 1.2 Methodologist diagnosis
+
+For non-obvious issues, deploy the methodologist. Follow reviewer independence protocol from `peer-review` skill if multiple diagnostic rounds are needed.
+
+```
+task(subagent_type="methodologist", background=true):
+  "Diagnose why these experiment results are below expectations.
+
+   PLAN: [paste plan's method thesis and expected metrics]
+
+   RESULTS:
+   [paste cross-experiment comparison table]
+
+   EXPERIMENT DETAILS:
+   [for each underperforming experiment: hyperparameters, training curves if available, final metrics]
+
+   Analyze:
+   1. Is this a hyperparameter issue (LR, batch size, schedule)?
+   2. Is this an architecture issue (capacity, depth, width)?
+   3. Is this a training recipe issue (data, loss, curriculum)?
+   4. Is this a fundamental method limitation?
+   5. What specific changes would most likely improve results?
+
+   For each suggested change:
+   - Expected impact (quantitative if possible)
+   - Risk (could this make things worse?)
+   - Compute cost
+
+   Rank changes by expected_impact / compute_cost ratio."
+```
+
+### 1.3 Scholar search for optimization tricks
+
+If the methodologist identifies a specific bottleneck, search for solutions:
+
+```
+task(subagent_type="scholar", background=true):
+  "Search for papers from 2024-2026 that address [specific bottleneck].
+   Focus on: training recipes, hyperparameter schedules, and optimization tricks.
+   Search for engineering improvements, not new methods.
+   For important findings:
+   Call research_wiki(action='ingest_paper', ...) to register.
+   Return: concrete actionable suggestions with paper citations."
+```
+
+### 1.4 Produce optimization plan
+
+Based on diagnosis, produce a ranked list of changes:
+
+```markdown
+## Optimization Plan (Iteration N)
+
+### Priority 1: [Change]
+- Rationale: [from diagnosis]
+- Experiments affected: [which exp IDs]
+- Expected impact: [quantitative]
+- Risk: [low/medium/high]
+
+### Priority 2: [Change]
+...
+```
+
+Record:
+```
+research_timeline(action="append_free_event", event_type="decision",
+  summary="Experiment optimization round N: targeting [key change]. Diagnosis: [root cause].",
+  event_refs=[...affected experiment IDs...])
+```
+
+```
+dagpatch({ nodes: [{ id: "diagnose", status: "completed" }] })
+```
+
+---
+
+## Step 2: Design Adjusted Experiments
+
+### 2.1 Register new experiments linked to predecessors
+
+For each optimization target, register a new experiment referencing the predecessor:
+
+```
+research_experiment(action="register",
+  title="Main method — LR sweep 3e-4 (optimization of exp_001)",
+  group="main",
+  plan="plan_XXX",
+  authenticity="evidence",
+  redlines=["R1_metric_immutability"],
+  backend="inspire",
+  hyperparameters={learning_rate: 3e-4, batch_size: 128, seed: 42, ...})
+```
+
+Write the experiment `.md` with explicit links:
+```markdown
+## Optimization Context
+- Predecessor: exp_001 (PPL 21.3, target was < 20.0)
+- Change: LR 1e-4 → 3e-4
+- Rationale: [from diagnosis]
+- Expected outcome: PPL improvement of 0.5-1.5
+```
+
+### 2.2 Regression guard experiments
+
+If making non-trivial code changes (not just hyperparameters), register a regression check:
+
+```
+research_experiment(action="register",
+  title="Regression check — baseline with new code",
+  group="sanity",
+  ...)
+```
+
+### 2.3 Parallel vs sequential
+
+**Run in parallel** (independent changes):
+- Different hyperparameter values for the same experiment
+- Different seeds for variance measurement
+- Independent optimization targets
+
+**Run sequentially** (dependent changes):
+- Code change requires validation before further tuning
+- Staged training where phase 2 depends on phase 1 output
+
+```
+dagpatch({ nodes: [{ id: "design", status: "completed" }] })
+```
+
+---
+
+## Step 3: Submit Experiments
+
+### 3.1 Git discipline
+
+```bash
+git status --porcelain
+```
+
+If code changed: commit before submitting.
+```bash
+git add -A && git commit -m "experiment: optimization round N — [change description]"
+```
+
+Record commit hash for experiment registration.
+
+### 3.2 Submit to Inspire
+
+For each new experiment:
+
+```
+inspire_submit(
+  name="exp_XXX",
+  command="[full command with conda init, cd, python, log tee]",
+  compute_group="...",
+  spec="...",
+  ...)
+```
+
+Link job to experiment:
+```
+research_experiment(action="schedule", id="exp_XXX", job_id="job-xxx")
+```
+
+### 3.3 Initial health check
+
+After all submissions:
+```
+inspire_jobs(status="running")
+inspire_logs(job_id="...", lines=50)
+```
+
+Verify experiments started correctly. If any failed immediately, diagnose and resubmit.
+
+```
+dagpatch({ nodes: [{ id: "submit", status: "completed" }] })
+```
+
+---
+
+## Step 4: Monitor and Collect
+
+### 4.1 Set watches for long-running jobs
+
+```
+agenda_watch(
+  title="Exp iterate: monitor exp_XXX",
+  delay="30m",
+  prompt="Check experiment exp_XXX (job-xxx) status via inspire_jobs and inspire_logs. If completed, collect results and continue experiment iteration. If failed, diagnose and report.")
+```
+
+### 4.2 On completion
+
+For each completed experiment:
+
+```
+inspire_logs(job_id="...", lines=200)
+```
+
+Parse final metrics and record:
+
+```
+research_experiment(action="complete", id="exp_XXX",
+  metrics={...},
+  artifacts={log: "...", checkpoint: "...", ...})
+```
+
+Update experiment `.md` with observations.
+
+### 4.3 On failure
+
+```
+research_experiment(action="fail", id="exp_XXX",
+  failure_reason="[specific reason from logs]")
+```
+
+Check `experiment-cycle` references/auto-retry.md for automated recovery (OOM, preemption, NaN).
+
+```
+dagpatch({ nodes: [{ id: "monitor", status: "completed" }, { id: "collect", status: "completed" }] })
+```
+
+---
+
+## Step 5: Compare Old vs New
+
+### 5.1 Cross-experiment comparison
+
+```
+research_experiment(action="compare",
+  ids=[old experiment IDs + new experiment IDs])
+```
+
+### 5.2 Statistical rigor
+
+Statistical testing thresholds from `config.experiment`: `significance_level` (default: 0.05), `min_seeds` (default: 3), `regression_tolerance` (default: 0.05).
+
+| Seeds | Test | Interpretation |
+|-------|------|----------------|
+| ≥ `config.experiment.min_seeds` | Paired t-test or Wilcoxon | Report p-value and Cohen's d |
+| 1-2 | Bootstrap CI (1000 resamples) | CI crosses zero → inconclusive |
+| 1 | Do NOT claim improvement | Preliminary observation only |
+
+### 5.3 Delta analysis
+
+For each optimization target:
+
+| Change | Old Metric | New Metric | Delta | Significant? | Assessment |
+|--------|-----------|-----------|-------|-------------|------------|
+| LR 1e-4 → 3e-4 | PPL 21.3 | PPL 19.8 | -1.5 | p=0.02, d=1.1 | Meaningful improvement |
+
+### 5.4 Regression check
+
+If code changes were made, verify the regression guard experiment:
+- Baseline result should be within `config.experiment.regression_tolerance` (default: 5%) of original
+- If regression detected: revert code change, try alternative
+
+Record insights:
+```
+research_timeline(action="append_free_event", event_type="insight",
+  summary="LR 3e-4 improves PPL by 1.5 (p=0.02). No regression on baseline.",
+  event_refs=["exp_001", "exp_XXX"])
+```
+
+```
+dagpatch({ nodes: [{ id: "compare", status: "completed" }] })
+```
+
+---
+
+## Step 6: Decision
+
+### 6.1 Assess against plan's evidence sets
+
+Re-read the plan's kill set and sufficient set. With the new results:
+
+- **Kill set passed AND sufficient set complete** → advance to compose (invoke claim-build)
+- **Kill set passed, sufficient set incomplete** → need more experiments (may be supplement, may be another iteration)
+- **Kill set failed** → method has fundamental issues → rollback to design
+- **Results improved but not yet sufficient** → iterate again if rounds remain
+
+### 6.2 Decision routing
+
+**Advance to compose (claim-build):**
+```
+research_state(action="advance", target_phase="compose",  → then invoke claim-build skill
+  summary="Building claims from experiment evidence",
+  reason="Sufficient set complete after N optimization rounds. Key metric: [X].",
+  refs_plan="plan_XXX",
+  refs_experiments=[...all relevant exp IDs...])
+```
+
+**Iterate again** (if `config.experiment.max_optimize_rounds` not reached and results are improving):
+
+Extend the DAG:
+```
+dagwrite({ nodes: [
+  ...existing completed nodes...,
+  { id: "analyze-r2", content: "Round 2: re-analyze with new results", status: "pending", deps: ["decide"] },
+  { id: "diagnose-r2", content: "Round 2: refine diagnosis", status: "pending", deps: ["analyze-r2"] },
+  ...
+]})
+```
+
+Re-enter at Step 0 with the new results as input.
+
+**Rollback to design** (method fundamentally doesn't work):
+```
+research_state(action="redirect", target_phase="design",
+  summary="Method revision needed based on experiment optimization results",
+  reason="After N optimization rounds, [key metric] remains at [X] vs target [Y]. Root cause: [Z].",
+  refs_plan="plan_XXX")
+```
+
+**Rollback to explore** (direction is not viable):
+```
+research_state(action="redirect", target_phase="explore",
+  summary="Re-exploring research direction",
+  reason="Experiments show [fundamental limitation]. N optimization rounds did not help.",
+  refs_idea="idea_XXX")
+```
+
+### 6.3 Record round
+
+```
+research_timeline(action="append_free_event", event_type="milestone",
+  summary="Experiment optimization round N: [key metric] improved from [X] to [Y]. Status: [advancing/iterating/rolling back].",
+  event_refs=[...experiment IDs...])
+```
+
+```
+dagpatch({ nodes: [{ id: "decide", status: "completed" }] })
+```
+
+### Budget Exhaustion Decision Tree
+
+When `enforceBudget` returns `must_decide` or `must_escalate`:
+
+1. **must_escalate** (stagnation > max_stagnation):
+   - First, try reframing the research question within the current phase
+   - If reframing fails, add a `reasonableness_check` checkpoint and ask the user
+   - If user confirms stagnation, redirect to design with a specific redesign request
+
+2. **must_decide** (attempts > max_attempts OR escalation > max_escalations):
+   - Review all experiment results holistically
+   - If any results are promising: narrow scope and promote with qualified claims
+   - If all results failed in the same way: redirect to design with diagnosis report
+   - If mixed results: claim what you can, document what failed, promote with caveats
+
+Do NOT simply abort — every experiment produces knowledge even when it "fails".
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after diagnosis (Step 1) to confirm optimization plan. Pause after results comparison (Step 5) to discuss findings. Pause at decision (Step 6).
+- **guided**: Pause at decision (Step 6) only.
+- **autonomous**: Run full cycle. Pause only on: all experiments fail, rollback needed, or `config.experiment.max_optimize_rounds` reached without improvement.
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| No completed experiments (experiment-cycle never ran) | Redirect to experiment-cycle: `skill(name="experiment-cycle")` |
+| All new experiments fail | Check if it's infrastructure (Inspire platform issue) vs code issue. For platform: retry with different spec/priority. For code: read logs, fix, resubmit. |
+| Results worse after optimization | Revert to previous best configuration. The optimization target was wrong — reassess diagnosis. |
+| Budget exhausted | Stop. Report remaining experiments needed. Suggest: low-priority CPU tasks (free), reduce scope, or use the best available results. |
+| Experiment takes too long | Set agenda_watch and yield. Do NOT poll in a loop. |
+| Code has uncommitted changes | REFUSE to submit. Git discipline is non-negotiable. |
+| Optimization doesn't converge | After `config.experiment.max_optimize_rounds` rounds, the bottleneck is likely in the method, not the recipe. Recommend rollback to design with the diagnosis evidence. |
+
+---
+
+## Rollback Entry Points
+
+### From compose (evidence insufficient)
+
+1. Read which claims lack evidence
+2. Design targeted experiments to fill the specific gap
+3. Re-enter at Step 2 (design) — skip full diagnosis if the gap is clear
+
+### From venue-cycle (reviewer demands more experiments)
+
+1. Map each reviewer request to a specific experiment
+2. Register and submit as a new optimization batch
+3. Re-enter at Step 2 (design) with reviewer comments as input

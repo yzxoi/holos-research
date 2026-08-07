@@ -1,0 +1,459 @@
+# Venue Cycle — Submission, Review, Rebuttal, and Revision Management
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL files under `.research/`** — submission records in `.research/submissions/`.
+2. **Reviewer comments via `research_submission(action="review")`** — not loose .md files.
+3. **Rebuttal drafts** → `paper/rebuttal/` directory.
+4. **Subagents return text, not files.**
+5. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, naming conventions.
+6. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+7. **Git commit research artifacts** after modifying .research/ files.
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: compose`
+- Paper status is `frozen`
+- All audit checks passed (paper-audit complete)
+
+## Output contract
+
+- A `submission_XXX` object exists tracking the entire venue interaction
+- All external reviewer comments are recorded as review sidecar entries
+- Rebuttal strategy and revision plan are documented
+- The submission reaches a terminal state: `accepted` / `rejected` / `closed`
+
+---
+
+## DAG Template
+
+```mermaid
+graph LR
+    load[Load Context] --> prepare[Prepare Package]
+    prepare --> submit[Submit]
+    submit --> monitor[Monitor Reviews]
+    monitor --> respond[Rebuttal and Revise]
+    respond --> update[Update Paper]
+    update --> decide[Decide: Resubmit or Close]
+```
+
+Nodes:
+- `load` — Load frozen paper, audit results, and submission state
+- `prepare` — Register submission, verify package, run pre-submit mock review
+- `submit` — Submit to venue, record milestone on timeline
+- `monitor` — Track review status, record external reviewer comments
+- `respond` — Synthesize reviews, plan rebuttal strategy, execute phase rollbacks if needed
+- `update` — Apply revisions (experiments, claims, prose), re-audit if substantial changes
+- `decide` — Resubmit for next round, accept terminal state, or pivot venue
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- Read current state via `research_state(action="overview")` before acting
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- When a human checkpoint is triggered, the system auto-generates a brief; use `research_checkpoint_brief(action="read")` to view it
+- Record all reviewer comments via `research_submission(action="review")` — never as loose files
+- Verify paper is `frozen` and audit checks passed before submitting
+
+### Forbidden
+- Do not submit without completing pre-submit mock review
+- Do not ignore reviewer consensus concerns (2+ reviewers agree) — must address
+- Do not execute phase rollbacks without user approval
+
+### Checkpoints
+- submission_readiness_confirmed
+- response_submitted
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="submission and review status")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## Step 1: Submission Preparation
+
+### 1.1 Register submission
+
+```
+research_submission(action="create",
+  title="[Paper title] — [Venue] [Year]",
+  paper="paper_001",
+  venue="ICML 2027")
+```
+
+### 1.2 Prepare submission package
+
+Verify the package is complete:
+- [ ] Main paper PDF compiles cleanly
+- [ ] Supplementary PDF compiles separately (if venue requires)
+- [ ] Abstract text matches paper abstract exactly
+- [ ] Author information correct (for non-anonymous venues)
+- [ ] Keywords / subject areas selected
+- [ ] Conflicts of interest declared
+- [ ] Code/data availability URL (if required)
+- [ ] Venue-specific formatting requirements met (page limit, margins, font)
+
+### 1.3 Pre-submit mock review
+
+Before submitting, run one final mock review to predict likely reviewer concerns:
+
+```
+task(subagent_type="critic"):
+  "Conduct a rapid pre-submission check as Reviewer 2 for [venue].
+   Focus on the 3 most likely objections a real reviewer would raise.
+   For each objection: what it is, how strong it is, and our planned defense.
+   This is preparation, not a full review.
+   Return your review as structured text. The main agent records it via the appropriate research tool."
+```
+
+Include predicted concerns in the submission record: add a "## Predicted Reviewer Concerns" section in the `content` param when calling `research_submission(action="create", ...)`, or append later via the `notes` param.
+
+### 1.4 Submit
+
+```
+research_submission(action="submit", id="sub_001", submitted_date="2027-01-15")
+```
+
+Record milestone:
+```
+research_timeline(action="append_free_event", event_type="milestone",
+  summary="Paper submitted to [venue]",
+  event_refs=["paper_001", "sub_001"])
+```
+
+---
+
+## Step 2: Await Reviews
+
+During the review period:
+- Monitor venue portal for status updates
+- If the venue provides early signals (desk reject, reviewer assignment), record them:
+
+```
+research_submission(action="record_round", id="sub_001",
+  round_status="under_review",
+  summary="Assigned to 3 reviewers. No desk reject.")
+```
+
+---
+
+## Step 3: Process External Reviews
+
+When reviews arrive:
+
+### 3.1 Record each reviewer's comments
+
+For each external reviewer:
+
+```
+research_submission(action="review", id="sub_001",
+  reviewer="Reviewer 1",
+  summary="Score 6/10. Main concerns: missing baseline comparison with [X], unclear training details.",
+  scores={soundness: 3, presentation: 3, contribution: 2, overall: 6, confidence: 4},
+  verdict="revise",
+  action_items=[
+    "Add comparison with [X] method",
+    "Expand training details in Section 3.5",
+    "Report confidence intervals for all results"
+  ],
+  review_body="[paste full reviewer comments]")
+```
+
+Repeat for each reviewer.
+
+### 3.2 Record the round
+
+```
+research_submission(action="record_round", id="sub_001",
+  round_status="reviews_received",
+  summary="3 reviews received. Scores: 6, 7, 5. Meta-reviewer: revision encouraged.")
+```
+
+### 3.3 Synthesize reviews
+
+Build a consolidated analysis:
+
+| Concern | R1 | R2 | R3 | Consensus | Required Action |
+|---------|----|----|----|----|-----|
+| Missing baseline X | ✅ | | ✅ | 2/3 agree | Must address |
+| Training details unclear | ✅ | ✅ | | 2/3 agree | Must address |
+| Overclaimed efficiency | | ✅ | ✅ | 2/3 agree | Must address |
+| Minor writing issues | ✅ | | | 1/3 | Nice to fix |
+
+### 3.4 Classify each concern by required action
+
+| Category | Action | Phase rollback needed |
+|----------|--------|----------------------|
+| **New experiment needed** | Supplement experiments | → `experiment` |
+| **Claim scope too broad** | Narrow claims, add caveats | → `compose` (→ then invoke claim-build) |
+| **Narrative/clarity issue** | Rewrite sections | → `compose` |
+| **Method logic flaw** | Revise method design | → `design` |
+| **Formatting/minor** | Fix in current phase | (no rollback) |
+
+---
+
+## Step 4: Rebuttal Strategy
+
+### 4.1 Enter rebuttal mode
+
+```
+research_submission(action="enter_rebuttal", id="sub_001")
+```
+
+### Rebuttal Timeline Management
+
+When entering rebuttal phase:
+
+1. Record the rebuttal deadline immediately via `research_timeline(action="append_free_event", event_type="deadline", summary="Rebuttal deadline: [DATE]")`
+2. Use `agenda_watch` or `agenda_schedule` to set a reminder 3 days before the deadline
+3. Track reviewer response status:
+   - R1: [status] — [key concern]
+   - R2: [status] — [key concern]
+   - ...
+4. For each reviewer concern, classify as:
+   - **Addressable**: Can be resolved with additional experiments or text changes
+   - **Clarification**: Requires only text changes
+   - **Disagreement**: Fundamental disagreement — needs careful rebuttal framing
+
+5. Rebuttal writing priority:
+   - Address shared concerns first (cited by multiple reviewers)
+   - Then addressable concerns with supplementary experiments
+   - Finally, disagreements with careful framing
+
+6. After rebuttal submission, record `research_submission(action="record_round", ...)` with rebuttal summary
+
+### 4.2 Plan the rebuttal
+
+For each reviewer concern, determine:
+
+1. **Accept**: The concern is valid. State what we will change.
+2. **Clarify**: The concern is based on a misunderstanding. Explain clearly.
+3. **Respectfully disagree**: The concern is incorrect. Provide evidence.
+4. **Defer**: Valid but out of scope. Acknowledge and note as future work.
+
+Append the rebuttal plan: `research_submission(action="enter_rebuttal", id="sub_001", notes="## Rebuttal Plan\n\n### R1-1: Missing baseline comparison with [X]\nAction: ACCEPT — will add experiment\nPhase: experiment rollback needed\nPriority: HIGH\n\n### R1-2: Training details unclear\nAction: CLARIFY — details are in supplementary, will add cross-reference\nPhase: compose (minor edit)\nPriority: MEDIUM\n\n### R2-1: Overclaimed efficiency\nAction: ACCEPT — will add caveat to claim\nPhase: compose (invoke claim-build to narrow scope)\nPriority: HIGH")`
+
+### 4.3 Write the rebuttal
+
+Use `scribe` for drafting and `editor` for review. After both return text, use the `write` tool to save the final rebuttal to `paper/rebuttal/rebuttal.md`:
+
+```
+task(subagent_type="scribe"):
+  "Draft a rebuttal/response letter for [venue] addressing these reviewer concerns:
+
+   [paste synthesized concerns + our planned responses]
+
+   Format: Point-by-point response to each reviewer.
+   Tone: Respectful, direct, evidence-based.
+   Structure per concern:
+   - Acknowledge the concern
+   - State our response (accept/clarify/disagree/defer)
+   - Describe the specific change made (or why we disagree)
+   - Reference the specific section/figure/table that was changed
+   Return the drafted text. The main agent writes it to the correct location."
+```
+
+```
+task(subagent_type="editor"):
+  "Review this rebuttal letter for tone, clarity, and completeness:
+   [paste draft rebuttal]
+   Check: professional tone, every concern addressed, no defensive language,
+   changes clearly described, evidence cited.
+   Return your editorial feedback as structured text with specific location references."
+```
+
+**⏸ CHECKPOINT**: Present the rebuttal plan and draft to the user before executing any changes.
+
+---
+
+## Step 5: Revision Execution
+
+### 5.1 Phase rollbacks
+
+For concerns requiring earlier-phase work:
+
+**Supplement experiments:**
+```
+research_state(action="redirect", target_phase="experiment",
+  summary="Adding experiments requested by reviewers",
+  reason="Reviewer R1 and R3 request baseline comparison with [X]")
+```
+→ Follow `experiment-cycle` skill for the supplement experiments
+→ Return to compose (venue-cycle) when complete
+
+**Narrow claims:**
+```
+research_state(action="redirect", target_phase="compose",  → then invoke claim-build skill
+  summary="Narrowing claims per reviewer feedback",
+  reason="Reviewer R2 and R3 find efficiency claim overclaimed")
+```
+→ Follow `claim-build` skill to adjust claims
+→ Return to compose (venue-cycle) when complete
+
+**Rewrite sections:**
+```
+research_state(action="redirect", target_phase="compose",
+  summary="Revising paper sections per reviewer feedback",
+  reason="Multiple reviewers request clearer training details and narrative improvements")
+```
+→ Follow `paper-compose` skill for targeted section rewrites
+→ Return to compose (venue-cycle) when complete
+
+### 5.2 In-phase fixes
+
+For concerns resolvable within compose (venue-cycle):
+- Fix formatting issues directly
+- Add minor clarifications
+- Update cross-references
+
+### 5.3 Unfreeze paper for revision
+
+```
+research_paper(action="advance", id="paper_001", target_status="revising")
+```
+
+After all revisions complete:
+```
+research_paper(action="advance", id="paper_001", target_status="ready")
+```
+
+### 5.4 Re-audit if substantial changes
+
+If experiments were added or claims were changed, re-run a targeted audit:
+- Data truthfulness for new results
+- Claim-evidence consistency for modified claims
+- Simulated review to predict whether revisions address concerns
+
+---
+
+## Step 6: Revision Letter
+
+Use the `write` tool to save the revision letter to `paper/rebuttal/revision-letter.md`, documenting every change:
+
+```markdown
+# Revision Letter
+
+## Summary of Changes
+[Brief overview: N experiments added, M claims adjusted, K sections rewritten]
+
+## Detailed Response to Reviewers
+
+### Reviewer 1
+
+**Concern 1**: [quote concern]
+**Response**: [what we did]
+**Location**: Section X.Y, Figure Z, Table W
+
+**Concern 2**: ...
+
+### Reviewer 2
+...
+
+### Reviewer 3
+...
+
+## Additional Changes
+[Changes not prompted by reviewers but discovered during revision]
+```
+
+---
+
+## Step 7: Resubmit
+
+```
+research_paper(action="advance", id="paper_001", target_status="frozen")
+research_submission(action="resubmit", id="sub_001",
+  summary="Revised paper addressing all reviewer concerns. Added N experiments, narrowed M claims.")
+```
+
+Record milestone:
+```
+research_timeline(action="append_free_event", event_type="milestone",
+  summary="Revision resubmitted to [venue] with N new experiments and revised claims",
+  event_refs=["sub_001", "paper_001"])
+```
+
+---
+
+## Step 8: Subsequent Rounds
+
+If the venue allows multiple revision rounds, repeat Steps 3-7 for each round. Each round is recorded:
+
+```
+research_submission(action="record_round", id="sub_001",
+  round_status="revision_2_submitted",
+  summary="Second revision: addressed remaining concerns from R2.")
+```
+
+---
+
+## Step 9: Terminal State
+
+### Accepted
+
+```
+research_submission(action="close", id="sub_001", outcome="accepted",
+  summary="Accepted at [venue] after N revision rounds.")
+```
+
+Record the acceptance. Then proceed to the `archive` phase for camera-ready and final packaging.
+
+### Rejected
+
+```
+research_submission(action="close", id="sub_001", outcome="rejected",
+  summary="Rejected at [venue]. Key reasons: [...]")
+```
+
+**⏸ CHECKPOINT**: Present options to user:
+1. **Revise and resubmit to same venue** (if revision invited): Create new submission
+2. **Submit to different venue**: Adjust formatting, possibly revise claims → new submission
+3. **Major revision**: Rollback to earlier phase (design/experiment/compose) → new submission cycle
+4. **Archive**: If the direction is no longer pursued → `archive` phase
+
+### Withdrawn
+
+```
+research_submission(action="close", id="sub_001", outcome="closed",
+  summary="Withdrawn: [reason]")
+```
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after reviews received, after rebuttal plan, after each phase rollback return, before resubmission
+- **guided**: Pause after reviews received and before resubmission
+- **autonomous**: Auto-process formatting fixes, pause for rebuttal strategy and phase rollbacks
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| Desk rejected | Analyze reason. If formatting → fix and resubmit. If scope → different venue. Record and close. |
+| One reviewer hostile, two positive | Focus rebuttal on the hostile reviewer's specific concerns. Cite agreement from other reviewers where relevant. |
+| All reviewers request same experiment | This is a strong signal. Prioritize this experiment above all other revision work. |
+| Revision deadline tight | Prioritize CRITICAL reviewer concerns. Defer MINOR to camera-ready. Communicate clearly in revision letter. |
+| Reviewer asks for something impossible | Respectfully explain the constraint. Offer the closest feasible alternative. |
+| Paper rejected twice at same tier | Consider: (a) drop to lower-tier venue, (b) major revision with new experiments, (c) re-scope as a different type of paper (workshop → main, short → long). |

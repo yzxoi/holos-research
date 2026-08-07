@@ -1,0 +1,474 @@
+# Novelty Ground — Contribution Positioning and Novelty Validation
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL files under `.research/`** — never write to project root.
+2. **Use `research_wiki(ingest_paper)` for every new paper** — not `write` or `note_write`.
+3. **Subagents return text, not files.** Each dispatch includes agent-type-specific file guidance.
+4. **Reviews via `research_idea(action="review")`** — not free-text files.
+5. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, and naming conventions.
+6. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- [ ] For each candidate, try at least 1 contribution reframe before reject
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- [ ] Find 2-3 closest works per candidate (not 5 — be precise, not exhaustive)
+- [ ] Produce a grounded StorySpine with: grounded_angle, closest_work_positioning, expected_main_claims
+- [ ] Record used_wiki_refs in phase_run.context_refresh
+
+### Forbidden
+- [ ] Do not reject an idea solely because of partial overlap — reframe first
+- [ ] Do not run more than 2 revision rounds on contribution statement
+- [ ] Do not deploy more than 2 parallel review agents — avoid drowning in feedback
+
+### Checkpoints
+- [ ] reasonableness_check: Present grounded StorySpine(s), user confirms the grounded angle is reasonable
+- [ ] pivot_confirmation: If all candidates scooped, confirm with user before returning to explore
+
+---
+
+## RCM Mode (default when RDC + RCM are available)
+
+When the RDC research data center and RCM pipeline engine are both available, replace the
+entire multi-step subagent workflow below with a single RCM CLI call.
+
+RCM handles: closest-work search (same problem + same mechanism), paper card ingest,
+contribution positioning, adversarial review (critic + scholar), revision, grounded
+StorySpine construction, and gate verdict — AND writes results to RDC.
+
+### Entry check
+- [ ] RDC is running (`rdc_read(entity_type="research")` works)
+- [ ] RCM CLI is available (`which accelerate`)
+- [ ] `RDC_URL` and `RDC_RESEARCH_ID` environment variables are set
+- [ ] Focus phase is `ground` (confirmed via `research_state(action="read")`)
+- [ ] At least one idea has status `selected` (confirmed via `research_idea(action="list")`)
+
+### Step A: Load context
+
+```
+research_state(action="read")
+research_idea(action="list", filter_status="selected")
+```
+
+Extract the selected idea ID, title, and anchor from the response.
+
+### Step B: Call RCM ground pipeline
+
+```bash
+RDC_URL=http://localhost:3000/api/v1 \
+RDC_RESEARCH_ID=<research_id> \
+accelerate run /path/to/RCM/examples/autoresearch/rcm/ground.rcm \
+  --purpose "Ground <selected idea title>: <anchor>" \
+  --stream 2>&1 | tee /tmp/rcm-ground-output.log
+```
+
+Use `background: true` and monitor progress. Set 10-20 minute timeout.
+
+### Step C: Read results from RDC
+
+After RCM completes:
+
+```
+research_idea(action="list", filter_status="selected")
+```
+
+Read the grounded StorySpine from `story_spines` table (via RDC API or directly).
+Read the positioning from `positionings` table.
+
+### Step D: Present to user with checkpoint
+
+**⏸ CHECKPOINT: reasonableness_check**
+
+Present:
+- Contribution statement (with type and honest strength calibration)
+- Positioning table (2-3 closest works)
+- Grounded StorySpine (grounded_angle, expected_main_claims, minimum_evidence)
+- Key concerns from review
+- Gate verdict from RCM
+
+Record user's confirmation:
+
+```
+research_journal(action="append", kind="decision_rationale",
+  summary="User confirmed grounded StorySpine for idea_XXX",
+  note="<user feedback>")
+```
+
+### Step E: Advance state
+
+```
+research_state(action="advance", target_phase="design",
+  summary="Method design for: <idea title>",
+  reason="Novelty position confirmed by user and adversarial review",
+  refs_idea="<selected_idea_id>")
+```
+
+### RCM mode checklist
+- [ ] RCM process completed without error
+- [ ] RDC positioning table contains contribution statement
+- [ ] StorySpine has grounded_angle populated
+- [ ] Gate verdict is `strong` or `acceptable`
+- [ ] User has confirmed reasonableness_check checkpoint
+- [ ] Focus phase advanced to `design`
+
+### Fallback
+
+If RCM is unavailable, fall through to the Traditional Subagent Mode below.
+
+## DAG Template
+
+Create this DAG at skill entry. Streamlined from v2.1 — merged mapping + review into one step.
+
+```
+dagwrite({ nodes: [
+  { id: "load",      content: "Load idea, anchor, literature context",         status: "pending", deps: [] },
+  { id: "closest",   content: "Closest-work search (2 parallel agents)",       status: "pending", deps: ["load"] },
+  { id: "position",  content: "Contribution statement + positioning",          status: "pending", deps: ["closest"] },
+  { id: "review",    content: "Single adversarial review (critic + scholar)",  status: "pending", deps: ["position"] },
+  { id: "revise",    content: "Parse feedback, revise if needed",              status: "pending", deps: ["review"] },
+  { id: "writeback", content: "Wiki writeback + present to user",              status: "pending", deps: ["revise"] }
+]})
+```
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+Before beginning any work in this phase:
+
+1. **Load core state**: `research_state(action="read")`
+2. **Load idea**: Read the selected idea's `.yaml` and `.md`
+3. **Load literature**: `research_wiki(action="query")` + `LIT_CONTEXT.md`
+4. **Record wiki refs**: Record `used_wiki_refs` in `phase_run.context_refresh`
+5. **Drift check**: Verify selected idea still addresses `anchor`
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","idea","wiki"], checked_skill_rules: true})
+```
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: ground`
+- At least one idea is in status `selected`
+
+## Output contract
+
+- The selected idea has a stable contribution statement and positioning
+- The StorySpine has been grounded with: grounded_angle, closest_work_positioning, expected_main_claims
+- Wiki edges connect the idea to closest works and gaps
+- The idea is ready for method design (or has been rolled back to explore)
+
+---
+
+## Step 0: Load Context and Anchor
+
+### 0.1 Read state
+```
+research_state(action="read")
+```
+
+### 0.2 Load idea
+```
+research_idea(action="list")
+```
+Read the selected idea's core insight, novelty breakdown, and feasibility.
+
+### 0.3 Load literature context
+```
+research_wiki(action="query")
+```
+Read `LIT_CONTEXT.md` and relevant `papers/{slug}.md`.
+
+### 0.4 Read the anchor
+The `anchor` field is the user's research direction. All novelty assessment is relative to this.
+
+### 0.5 Verify idea-anchor alignment
+If the idea drifted during explore, flag it now.
+
+---
+
+## Step 1: Closest-Work Identification
+
+### 1.1 Targeted search (2 agents, not 3)
+
+Deploy 2 parallel agents — one for same-problem work, one for same-mechanism work. Skip the generic industry search unless the idea is application-oriented.
+
+```
+task(subagent_type="scholar", background=true):
+  "Search for the most recent work (2025-2026) that is closest to this idea:
+   [paste idea description and core insight]
+   Focus on: same mechanism, same problem, same approach.
+   Look for both published work AND recent arxiv pre-prints (last 3 months).
+  For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
+  For minor papers: return title/arxiv/venue as text.
+    Return: title, one-line method, specific overlap with our idea, date, venue."
+
+task(subagent_type="scholar", background=true):
+  "Search for work that uses a similar MECHANISM to ours, even if applied to
+   a different problem or domain.
+   [paste the technical approach from idea description]
+  For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
+  For minor papers: return title/arxiv/venue as text.
+    Return: title, mechanism, domain, how it relates."
+```
+
+### 1.2 Build closest-work shortlist
+
+Identify the **2-3** most directly related papers. For each:
+- What specific aspect overlaps with our idea?
+- What is the precise technical difference?
+- Why does that difference matter?
+
+### 1.3 Ingest findings
+Register any missed papers with `research_wiki(action="ingest_paper")`.
+Establish relationships: `research_wiki(action="link", ...)`
+
+---
+
+## Step 2: Contribution Positioning
+
+### 2.1 Classify contribution type
+
+Pick the primary type. Do not over-classify — most papers are one type with supporting elements:
+
+| Type | Core claim pattern |
+|------|-------------------|
+| **new method** | "We propose [mechanism] that [achieves what]" |
+| **new problem** | "We identify [problem] that prior work overlooks" |
+| **new analysis** | "We reveal [insight] about [existing method]" |
+| **method transfer** | "We adapt [method X] to [domain Y]" |
+
+### 2.2 Write contribution statement
+
+Write a **concise** statement (4-8 sentences max) covering:
+
+1. What we do and how it differs from closest work
+2. The key insight (one sentence)
+3. What this enables that was not achievable before
+4. Scope: when this holds, when it doesn't
+
+**Honesty rules:**
+- Do NOT claim "first to apply X to Y" unless the adaptation is non-trivial
+- Do NOT list more than 2 distinct contributions
+- If the honest calibration is "weak", say so — then try reframing the contribution type
+
+### 2.3 Build positioning table
+
+| Paper | Overlap | Our difference | Why it matters |
+|-------|---------|----------------|----------------|
+
+2-3 rows (one per closest work), not 5. Each row has a concrete, verifiable difference.
+
+---
+
+## Step 3: Adversarial Review (single round, 2 lenses)
+
+Deploy **2 agents in parallel** — one critic, one scholar. Not three. The goal is to catch real problems, not generate redundant feedback.
+
+### 3.1 Critic: Devil's advocate + overclaim audit (combined)
+
+```
+task(subagent_type="critic", background=true):
+  "Review this contribution statement for a top-venue submission:
+
+   [paste contribution statement + positioning table]
+
+   Apply these tests (combined devil's advocate + overclaim check):
+   1. Reduction test: Could a reviewer say 'this is just [simple variant]'?
+   2. Is this primarily engineering effort rather than insight?
+   3. Are differences specific and verifiable, or vague ('more efficient')?
+   4. Is the claim scope honest? Are there limiting assumptions?
+   5. Contribution sprawl: more than 2 distinct claims?
+   6. Is the comparison against the strongest prior work?
+
+   For each: PASS / CONCERN / FAIL + specific feedback.
+   Overall verdict: pass / revise / rethink.
+   If rethink: suggest a concrete reframe direction.
+   Return structured text. The main agent records via research_idea(action='review')."
+```
+
+### 3.2 Scholar: Novelty verification
+
+```
+task(subagent_type="scholar", background=true):
+  "Verify the novelty of this contribution claim:
+   [paste contribution statement]
+
+   1. Search for any 2025-2026 work making a similar claim or using a similar mechanism
+   2. Verify each 'differs from' statement against the actual paper
+   3. Check for concurrent work in the last 3 months
+   4. Is the contribution type classification correct?
+
+   Return: per-claim novelty verdict (NOVEL / PARTIAL / SCOOPED) + corrections.
+  For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
+  For minor papers: return title/arxiv/venue as text."
+```
+
+### 3.3 Record reviews
+
+```
+research_idea(action="review", id="idea_XXX", reviewer="critic",
+  focus="adversarial review", verdict="pass|revise|rethink",
+  summary="<review summary>", scores={...},
+  action_items=[...], review_body="<full review text>")
+```
+
+### 3.4 Drift check
+After reviews: does this contribution still address the anchor? If positioning shifted the idea, update the anchor or flag for user.
+
+---
+
+## Step 4: Revise (max 1 round)
+
+### 4.1 Parse feedback
+
+Extract actionable items. Classify:
+- **Must fix**: evidence-backed concerns
+- **Consider**: reasonable but arguable
+- **Wrong**: misunderstanding — push back
+
+### 4.2 Revise
+
+Update the contribution statement and positioning table. Re-check drift against anchor.
+
+### 4.3 Decision
+
+- If both reviewers pass → proceed to writeback
+- If minor concerns → fix and proceed (no re-review)
+- If critical concern remains after revision → present options to user: reframe, narrow scope, or rollback
+
+Do NOT run a second full review round. The goal is to converge, not iterate endlessly.
+
+---
+
+## Step 5: Build Grounded StorySpine and Wiki Writeback
+
+### 5.1 Update StorySpine
+
+```yaml
+# Grounding output (added in ground)
+status: grounded
+grounded_angle:
+  type: [new_method | new_analysis | new_problem | method_transfer]
+  title_sketch: [paper title]
+  paper_thesis: [one-sentence claim for the abstract]
+  closest_work_positioning: [how we differ from 2-3 closest papers]
+  expected_main_claims:
+    - [claim 1]
+    - [claim 2]
+  minimum_evidence:
+    - [experiment for claim 1]
+    - [experiment for claim 2]
+```
+
+### 5.2 Writeback to idea
+
+```
+research_idea(action="update", id="idea_XXX", status="grounding",
+  notes="## Contribution Statement\n[statement]\n\n### Positioning\n[table]\n\n### Grounded StorySpine\n[yaml from 5.1]")
+```
+
+### 5.3 Record wiki relationships
+
+```
+research_wiki(action="link", from="idea_XXX", to="<slug>", edge_type="extends|contradicts", evidence="...")
+research_wiki(action="link", from="idea_XXX", to="G0X", edge_type="addresses_gap", evidence="...")
+```
+
+### 5.4 Record milestone
+
+```
+research_timeline(action="append_free_event", event_type="decision",
+  summary="Contribution positioned: <one-line summary>",
+  event_refs=["idea_XXX"])
+```
+
+---
+
+## Step 6: Present to User
+
+**⏸ CHECKPOINT — do not proceed without user input.**
+
+**Checkpoint kind: `reasonableness_check`**
+
+Present:
+- Contribution statement (with type and honest strength calibration)
+- Positioning table (2-3 closest works)
+- Grounded StorySpine (grounded_angle, expected_main_claims, minimum_evidence)
+- Key concerns from review (summarized in 1-2 sentences, not full text)
+- Drift warnings (if any)
+
+**Options for user**:
+1. **Confirm** — advance to design
+2. **Reframe** — try a different contribution angle before deciding
+3. **Rollback to explore** — positioning not viable; record pivot rationale
+
+Record user decision rationale in journal.
+
+When a human checkpoint is triggered, the system auto-generates a checkpoint brief. The brief provides full context for the human decision. If you need to regenerate or view it, use `research_checkpoint_brief(action="generate"|"read")`.
+
+---
+
+## Step 7: Record Context Refresh and Advance State
+
+### 7.1 Record context refresh
+
+```
+research_state(action="brief",
+  context_refresh={
+    used_wiki_refs: ["paper_slug_1", ...],
+    phase_run: "novelty-ground",
+    key_decisions: ["selected grounded angle", ...],
+    checked_skill_rules: [
+      "Tried at least 1 contribution reframe before reject",
+      "Found 2-3 closest works per candidate",
+      "Produced grounded StorySpine with expected_main_claims"
+    ],
+    drift_check: { status: "pass|warning|block", note: "..." }
+  })
+```
+
+### 7.2 Advance state
+
+```
+research_state(action="advance", target_phase="design",
+  summary="Method design for: <idea title>",
+  reason="Novelty position confirmed by user and adversarial review",
+  refs_idea="idea_XXX")
+```
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| Contribution is overclaimed after revision | Downgrade strength, reframe type, or recommend returning to explore |
+| Scholar finds scooped work | If core claim scooped → rollback to explore. If sub-claim → narrow scope |
+| Drift detected | Present both directions to user for adjudication |
+| Reviewers disagree | Present both assessments, let user decide |
+| Phase rollback from design | Re-enter at Step 3 (review) with new information. Do NOT restart from Step 0 |
+
+### Rollback Cleanup
+
+When rolling back from ground to explore:
+- Wiki edges created for the failed grounded idea should be noted but NOT deleted (they document the exploration path)
+- Use `research_wiki(action="update_entry", id="...", notes="Grounding failed — contribution collapsed. Retained for reference.")` to mark
+- Do NOT delete story spine files — they are valuable exploration artifacts
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after closest-work search (Step 1), after review (Step 3), and at final checkpoint (Step 6)
+- **guided**: Pause at Step 6 only
+- **autonomous**: Run full workflow, present final result

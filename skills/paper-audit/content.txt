@@ -1,0 +1,491 @@
+# Paper Audit — Pre-Submission Integrity and Quality Assurance
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL files under `.research/`** — audit results go to review sidecars, not loose files.
+2. **Reviews via object `action="review"`** — e.g. `research_paper(action="review")`, not note_write.
+3. **Subagents (critic/auditor/editor) return text, not files.** Main agent records via tool.
+4. **Never modify experiment records to match paper** — fix the paper text instead.
+5. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, naming conventions.
+6. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+7. **Git commit research artifacts** after modifying .research/ files.
+
+---
+
+Load references as needed:
+- `references/audit-checklist.md` — full per-item verification checklist
+- `references/iteration-protocol.md` — multi-round loop protocol, reviewer independence, kill argument, convergence rules
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: compose`
+- Paper status is `ready` (all sections drafted, exhibits approved)
+- Claims are marked `final`
+
+## Output contract
+
+- Every audit dimension has a recorded pass/fail status
+- All CRITICAL issues are resolved before advancing
+- A reproducibility checklist is generated
+- Simulated venue review is recorded
+- Paper is `frozen` and ready for submission
+
+---
+
+## DAG Template
+
+```mermaid
+graph LR
+    load[Load Context] --> dimensions[Run Dimensions]
+    dimensions --> audit[Audit Each Dimension]
+    audit --> score[Aggregate Scores]
+    score --> fixes[Apply Fixes]
+    fixes --> recheck[Re-audit Failed]
+    recheck --> decide[Decide: Freeze or Rollback]
+```
+
+Nodes:
+- `load` — Load paper, claims, experiments, and audit config
+- `dimensions` — Run 7 audit dimensions (data truthfulness through simulated review)
+- `audit` — Deploy specialized subagents per dimension (auditor/critic/editor)
+- `score` — Aggregate per-dimension pass/fail and simulated review score
+- `fixes` — Apply PAPER-FIX items and recompile
+- `recheck` — Re-audit only dimensions that failed (fresh reviewer, no prior context)
+- `decide` — Freeze paper if converged, or escalate rollback if ROLLBACK findings remain
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- Read current state via `research_state(action="overview")` before acting
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- When a human checkpoint is triggered, the system auto-generates a brief; use `research_checkpoint_brief(action="read")` to view it
+- Record all audit findings via `research_paper(action="review")` — never as loose files
+- Verify paper status is `ready` before starting audit
+
+### Forbidden
+- Do not modify experiment records to match paper — fix the paper text instead
+- Do not skip audit dimensions — all 7 must be assessed
+- Do not ignore ROLLBACK findings — present to user before proceeding
+
+### Checkpoints
+- audit_dimensions_covered
+- score_above_threshold
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="audit dimensions and scores")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## Audit Dimensions
+
+The audit has **7 dimensions**, each with a dedicated agent:
+
+| # | Dimension | Agent | Focus |
+|---|-----------|-------|-------|
+| 1 | Data truthfulness | `auditor` | Do the numbers in the paper match the experiment records? |
+| 2 | Citation accuracy | `auditor` | Do cited papers exist and say what we claim? |
+| 3 | Claim-evidence consistency | `auditor` + `critic` | Is every claim supported, honestly scoped, and traceable? |
+| 4 | Format and completeness | `editor` | Notation, labels, cross-references, venue compliance |
+| 5 | Visual quality | `editor` | Figure/table clarity, accessibility, captioning |
+| 6 | Reproducibility | `auditor` | Code, hyperparameters, data, environment documented? |
+| 7 | Simulated venue review | `critic` | Would this paper survive top-venue peer review? |
+
+---
+
+## Step 1: Data Truthfulness Check
+
+Deploy the `auditor` to independently verify every number in the paper.
+
+```
+task(subagent_type="auditor"):
+  "Audit the manuscript for data truthfulness.
+
+   Paper source: [path to paper/ directory]
+   Experiment records: use research_experiment(action='list') and research_experiment(action='compare')
+   Exhibit records: use research_exhibit(action='list')
+
+   For every numeric claim in the paper:
+   1. Find the source experiment record
+   2. Compare the paper's number against the experiment yaml metrics
+   3. Report: VERIFIED / INCONSISTENT / UNVERIFIABLE
+
+   Pay special attention to:
+   - Tables: every cell must match an experiment record
+   - Inline numbers: 'we achieve 18.3 PPL' must match exp_XXX.yaml
+   - Improvement percentages: verify the arithmetic
+   - Standard deviations: verify they match multi-seed data
+    Return your audit report as structured text. The main agent records findings via the appropriate research tool."
+```
+
+Record:
+```
+research_paper(action="review", id="paper_001",
+  reviewer="auditor", focus="data truthfulness", ...)
+```
+
+**CRITICAL threshold**: Any INCONSISTENT finding is a blocker. Fix before proceeding.
+
+---
+
+## Step 2: Citation Accuracy Check
+
+```
+task(subagent_type="auditor"):
+  "Verify citation accuracy in the manuscript.
+
+   Paper source: [path to paper/ directory]
+   Literature database: use research_wiki(action='query') and research_wiki(action='lint')
+
+   For every citation in the paper:
+   1. Verify the cited paper exists in the wiki (or verify via scholar search)
+   2. Verify the characterization is accurate (what we say the paper does matches what it actually does)
+   3. Check for misattribution (attributing a result to the wrong paper)
+   4. Check for hallucinated citations (papers that don't exist)
+   5. Check for missing citations (obvious prior work not cited)
+
+   Report: VERIFIED / MISCHARACTERIZED / HALLUCINATED / MISSING per citation.
+    Return your audit report as structured text. The main agent records findings via the appropriate research tool."
+```
+
+Run wiki lint:
+```
+research_wiki(action="lint")
+```
+
+Record:
+```
+research_paper(action="review", id="paper_001",
+  reviewer="auditor", focus="citation accuracy", ...)
+```
+
+**CRITICAL threshold**: Any HALLUCINATED or MISCHARACTERIZED citation is a blocker.
+
+---
+
+## Step 3: Claim-Evidence Consistency
+
+### 3.1 Trace every claim
+
+For each final claim:
+```
+research_claim(action="trace", id="claim_XXX")
+```
+
+Verify:
+- The evidence chain is complete (all refs exist, are completed, not invalidated)
+- The paper text accurately renders the claim statement
+- Caveats in the claim object appear in the paper
+- No claim in the paper exists without a corresponding `claim_XXX` object
+
+### 3.2 Use critic for overclaim final check
+
+```
+task(subagent_type="critic"):
+  "Final overclaim check on the complete paper.
+
+   [paste or reference the full paper]
+
+   Claims registered in the system:
+   [list all final claims with their status and caveats]
+
+   Check:
+   1. Does the abstract overclaim relative to the results section?
+   2. Does the introduction promise more than the paper delivers?
+   3. Are all caveats from the claim objects reflected in the paper?
+   4. Are there implicit claims in the text not backed by registered claims?
+   5. Is the conclusion appropriately bounded?
+   6. Does the broader significance framing in the introduction and discussion
+      stay within what the evidence supports? Significance claims must be traceable
+      to specific experimental findings, not speculation.
+
+   Verdict: HONEST / BORDERLINE / OVERCLAIMED per section.
+   Return your review as structured text. The main agent records it via the appropriate research tool."
+```
+
+Record:
+```
+research_claim(action="review", id="claim_XXX",
+  reviewer="critic", focus="final overclaim check", ...)
+```
+
+---
+
+## Step 4: Format and Completeness
+
+```
+task(subagent_type="editor"):
+  "Audit the manuscript for formatting and completeness.
+
+   Check:
+   1. Notation consistency throughout (vectors, matrices, sets, functions)
+   2. All abbreviations defined on first use
+   3. All equations numbered and referenced
+   4. All figures/tables numbered sequentially and referenced in text
+   5. Cross-references correct (no broken \ref)
+   6. Bibliography complete (no undefined citations)
+   7. Page count within venue limit
+   8. Anonymous (if required): no author names, no acknowledgments, no self-identifying citations
+   9. Supplementary cross-references correct
+   10. Algorithm/pseudocode boxes complete and formatted
+
+   Report: PASS / ISSUE per item, with location for each ISSUE.
+   Return your editorial feedback as structured text with specific location references."
+```
+
+Verify compilation:
+```
+bash: cd paper && latexmk -pdf -interaction=nonstopmode main.tex 2>&1 | grep -E "Warning|Error|Overfull"
+```
+
+Record:
+```
+research_paper(action="review", id="paper_001",
+  reviewer="editor", focus="format and completeness", ...)
+```
+
+---
+
+## Step 5: Visual Quality
+
+```
+task(subagent_type="editor"):
+  "Audit all figures and tables for publication quality.
+
+   Exhibits: use research_exhibit(action='list') for the full inventory
+
+   For each exhibit, check:
+   1. Resolution adequate for print (300+ DPI for raster, vector preferred)
+   2. Font size readable at column width (≥ 8pt labels, ≥ 7pt ticks)
+   3. Color scheme: colorblind-safe, restrained, consistent across figures
+   4. Axes: labeled with units, appropriate scale
+   5. Legends: present, clear, positioned well
+   6. Captions: self-contained, specific, start with the finding
+   7. Tables: horizontal rules only, bold best, consistent decimals
+   8. Consistent style across all figures (same font, colors, layout philosophy)
+
+   Rate each exhibit: PUBLICATION-READY / NEEDS-REVISION / UNACCEPTABLE.
+   Return your editorial feedback as structured text with specific location references."
+```
+
+Record per-exhibit:
+```
+research_exhibit(action="review", id="exh_XXX",
+  reviewer="editor", focus="visual quality audit", ...)
+```
+
+---
+
+## Step 6: Reproducibility Assessment
+
+```
+task(subagent_type="auditor"):
+  "Assess reproducibility of this research.
+
+   Experiment records: use research_experiment(action='list')
+
+   Generate a reproducibility checklist:
+   1. Code availability: Is there a commit hash for each experiment?
+   2. Hyperparameters: Are ALL hyperparameters documented (not just the important ones)?
+   3. Data: Are datasets cited with version/split information?
+   4. Environment: Are GPU type (4090/H200), Docker image, framework version, random seeds documented? (See `skill(name="experiment-cycle", reference="references/inspire-compute.md")` for platform policy)
+   5. Training: Are training duration, convergence criteria, early stopping rules documented?
+   6. Evaluation: Are evaluation protocols precisely described?
+   7. Compute: Are total GPU-hours reported?
+
+   Report: COMPLETE / PARTIAL / MISSING per item.
+    Return your audit report as structured text. The main agent records findings via the appropriate research tool."
+```
+
+Record:
+```
+research_paper(action="review", id="paper_001",
+  reviewer="auditor", focus="reproducibility", ...)
+```
+
+---
+
+## Step 7: Simulated Venue Review
+
+The most comprehensive check: deploy the `critic` as a simulated top-venue reviewer.
+
+```
+task(subagent_type="critic"):
+  "You are Reviewer 2 for [venue]. Conduct a full review of this paper.
+
+   [provide full paper text or path]
+
+   Follow the venue's review format:
+   - Summary (2-3 sentences)
+   - Soundness (1-4)
+   - Presentation (1-4)
+   - Contribution (1-4)
+   - Overall Rating (1-10)
+   - Confidence (1-5)
+   - Strengths (numbered)
+   - Weaknesses (numbered, with severity)
+   - Questions for authors
+   - Missing references
+   - Significance assessment: Does the paper clearly articulate WHY this work matters?
+     Would a reader understand what changed in the field? Is the impact framing honest
+     and specific, or vague and generic?
+   - What would move this paper toward accept
+
+   Be as critical as a real Reviewer 2. Do not give a free pass.
+   Return your review as structured text. The main agent records it via the appropriate research tool."
+```
+
+Record:
+```
+research_paper(action="review", id="paper_001",
+  reviewer="critic", focus="simulated venue review", ...)
+```
+
+**⏸ CHECKPOINT**: Present the simulated review to the user. If the simulated rating is < 6/10, strongly recommend revision before submission.
+
+---
+
+## Step 8: Classify and Route Findings
+
+**Load `references/iteration-protocol.md` for the full multi-round iteration protocol.**
+
+After the 7-dimension audit, classify EVERY finding into exactly one category:
+
+| Category | Meaning | Action |
+|----------|---------|--------|
+| **PAPER-FIX** | Fixable by editing paper/exhibits | Fix in place → recompile → re-audit |
+| **ROLLBACK-CLAIM** | Claims overclaimed or unsupported | Recommend rollback to compose (invoke claim-build) |
+| **ROLLBACK-EXPERIMENT** | Missing evidence (baseline, ablation) | Recommend rollback to experiment phase |
+| **ROLLBACK-SPEC** | Method logic flaw exposed by writing | Recommend rollback to design phase |
+
+If ANY rollback is needed → present to the user or orchestrator before proceeding. Do not attempt to fix research-level issues within the paper.
+
+If only PAPER-FIX items → enter the fix loop.
+
+---
+
+## Step 9: Multi-Round Fix Loop
+
+### 9.1 Execute fixes
+
+For each PAPER-FIX item (priority: CRITICAL → IMPORTANT → MINOR):
+- Text/notation → use the `edit` tool on the LaTeX source files in `paper/`
+- Figure/table → regenerate exhibit, `research_exhibit(action="render")` + `verify`, output to `paper/figures/`
+- Citation → fix bib entry in `.research/literature/references.bib`, run `research_wiki(action="verify_bib")`
+- Use `editor` agent for prose fixes, `master` agent for figure regeneration
+
+### 9.2 Recompile
+
+```bash
+.research/scripts/paper_check.sh paper/ --json --limit [page_limit]
+```
+
+Preserve version:
+```bash
+cp paper/main.pdf paper/main_audit_round{N}.pdf
+```
+
+### 9.3 Re-audit (failed dimensions only)
+
+Re-run ONLY the dimensions that had findings in the previous round. Use a **fresh** reviewer task — do NOT include prior round's findings in the prompt (reviewer independence protocol).
+
+### 9.4 Track score progression
+
+Record after each round:
+- Per-dimension pass/fail status
+- Simulated review score (if dimension 7 was re-run)
+- Issues found / fixed / remaining
+
+### 9.5 Check convergence
+
+Convergence thresholds from `config.audit`: `max_fix_rounds` (default: 3), `min_score` (default: 8), `score_improvement_min` (default: 0.5), `stagnation_rounds` (default: 2).
+
+| Condition | Action |
+|-----------|--------|
+| All 7 dimensions pass + score ≥ `config.audit.min_score` | **STOP** — ready to freeze |
+| Score improved ≥ `config.audit.score_improvement_min` this round | Continue to next round |
+| Score stagnant `config.audit.stagnation_rounds` consecutive rounds | **STOP** — present best version |
+| `config.audit.max_fix_rounds` reached | **STOP** — present with remaining issues |
+| New ROLLBACK finding appears | **STOP** — recommend rollback |
+
+### 9.6 Kill Argument (theory papers, final round only)
+
+If the paper has ≥ 5 theorem/lemma environments, run the attack/defense exercise:
+- `critic` constructs the strongest rejection argument (200 words)
+- `methodologist` defends against each point with file evidence
+- Unresolved attack points → add to fix list
+
+---
+
+## Step 10: Freeze and Advance
+
+Once the loop converges:
+
+```
+research_paper(action="advance", id="paper_001", target_status="frozen")
+```
+
+**⏸ CHECKPOINT**: Present final audit summary:
+
+| Dimension | Status | Round Fixed |
+|-----------|--------|-------------|
+| Data truthfulness | ✅ PASS | Round 1 |
+| Citation accuracy | ✅ PASS | Round 0 |
+| Claim-evidence | ✅ PASS | Round 1 |
+| Format | ✅ PASS | Round 2 |
+| Visual quality | ✅ PASS | Round 1 |
+| Reproducibility | ✅ PASS | Round 2 |
+| Simulated review | ✅ 8.5/10 | Round 2 |
+
+Score progression: Round 0 → 5.5 → Round 1 → 7.0 → Round 2 → 8.5
+
+PDFs preserved: `main_audit_round0.pdf`, `main_audit_round1.pdf`, `main_audit_round2.pdf`
+
+Advance state:
+```
+research_state(action="advance", target_phase="compose",  → then invoke venue-cycle skill
+  summary="Paper frozen, ready for submission. Audit score: 8.5/10 after 3 rounds.",
+  reason="7-dimension audit complete. All critical issues resolved. Score converged.",
+  refs_paper="paper_001")
+```
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after initial audit (Step 7), after each fix round, and before freeze
+- **guided**: Run full loop, pause only before freeze with summary
+- **autonomous**: Full loop, freeze automatically if score ≥ `config.audit.min_score`, pause only for ROLLBACK recommendations
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| Data inconsistency found | Fix paper text to match experiment records. NEVER change experiment records to match paper. |
+| Hallucinated citation | Remove or replace. Use `research_wiki(action="verify_bib")` + `scholar` search. |
+| Simulated review < 4/10 | Likely needs major revision. Recommend rollback to compose (invoke claim-build). |
+| Score not improving after `config.audit.stagnation_rounds` rounds | Research-level issue. Recommend rollback (compose via claim-build, or experiment). |
+| Rollback approved by user | Orchestrator handles: `research_state(action="redirect")`. After earlier phase completes, return through compose → audit. |
+| Reproducibility gaps | Fill in supplementary. If experiment records incomplete, rollback to experiment. |
+| Kill argument exposes fatal flaw | Recommend rollback to design. Record the flaw for method revision. |

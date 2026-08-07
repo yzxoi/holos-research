@@ -1,0 +1,299 @@
+# Method Realize — From Design to Production-Ready Code Artifacts
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL files under `.research/`** — never write to project root.
+2. **Code artifacts via `research_experiment(action="register")`** — track all code in version control.
+3. **Reviews via `research_plan(action="review")`** — not free-text files.
+4. **Subagents return text, not files.** Each dispatch includes agent-type-specific file guidance.
+5. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, and naming conventions.
+6. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+7. **Git commit research artifacts** after modifying .research/ files.
+8. **Realize is implementation, not redesign.** If the design is unclear, return to method-design.
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- [ ] Sanity contract exists and is executable
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- [ ] Quality contract exists with measurable thresholds
+- [ ] Code passes inspector subagent review
+- [ ] Experiment matrix is registered from the active plan
+- [ ] All code is committed before experiment registration
+
+### Forbidden
+- [ ] Do not change the method design during realize — route to method-iterate instead
+- [ ] Do not skip sanity contract
+- [ ] Do not register experiments without committed code
+- [ ] **Do NOT submit compute jobs or run training beyond sanity/quality contract verification** — `compute_submit`, `inspire_submit`, `nohup` training, and long-running GPU jobs are FORBIDDEN in realize phase
+- [ ] **Sanity/quality contract verification MUST be quick (<5 min, single GPU, 1-2 batches only)** — if validation needs full training, the code is ready; advance to experiment phase first
+- [ ] Do not call `research_experiment(action="complete"|"fail")` — experiments are registered but not executed in this phase
+
+### Checkpoints
+- [ ] reasonableness_check: User confirms code structure matches design intent
+- [ ] resource_commitment: Confirm compute budget before large-scale experiments
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+Before beginning any work in this phase:
+
+1. **Load core state**:
+   ```
+   research_state(action="read")
+   ```
+   - Load `state.focus`, `active_phase_run`, and `anchor`
+   - Identify active plan from `focus.refs.plan`
+
+2. **Load relevant Plan and StorySpine**:
+   - Read active plan's `.md` — formal_method_spec, kill_set, sufficient_set, system graph
+   - Read `positioning/idea_*.story.yaml` for grounded StorySpine
+   - Read `positioning/story_spine_*.yaml` for StorySpine (grounded_angle provides the paper path direction)
+
+3. **Load wiki context**:
+   ```
+   research_wiki(action="query")
+   ```
+   - Read relevant `papers/{slug}.md` for implementation references
+   - Read wiki edges for method dependencies
+
+4. **Record wiki refs**:
+   - Record all `used_wiki_refs` in `phase_run.context_refresh`
+
+5. **Check skill checklist rules**:
+   - Review Must/Forbidden/Checklists below
+   - Record `checked_skill_rules` in `phase_run.context_refresh`
+
+6. **Drift check**:
+   - Verify implementation plan still addresses `anchor` and active plan's claims
+   - If drift detected, flag before proceeding
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","plan","wiki"], checked_skill_rules: true})
+```
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: realize`
+- An active plan exists with formal_method_spec, kill_set, and sufficient_set
+- Design phase is complete and approved
+
+## Output contract
+
+By the end of this skill:
+
+- A `code_artifact` object exists linking the plan to committed code
+- Sanity and quality contracts are defined and executable
+- Experiment matrix is registered from the plan
+- Code is ready for experiment-cycle
+
+---
+
+## Constants — Read from `research_state(action="read")` config
+
+- `config.realize.max_review_rounds` (default: 3) — Maximum code review iterations
+- `config.realize.code_review_threshold` (default: 7) — Minimum code quality score
+- `config.realize.require_sanity_contract` (default: true)
+- `config.realize.require_quality_contract` (default: true)
+
+---
+
+## DAG Template
+
+```
+dagwrite({ nodes: [
+  { id: "load",          content: "Load design, plan, and assets",              status: "pending", deps: [] },
+  { id: "scaffold",      content: "Scaffold project structure and core modules",  status: "pending", deps: ["load"] },
+  { id: "implement",     content: "Implement core algorithm/mechanism",           status: "pending", deps: ["scaffold"] },
+  { id: "baseline",      content: "Implement or integrate baseline code",         status: "pending", deps: ["scaffold"] },
+  { id: "eval",          content: "Implement evaluation protocol and metrics",    status: "pending", deps: ["scaffold"] },
+  { id: "contract",      content: "Define sanity and quality contracts",          status: "pending", deps: ["implement", "baseline", "eval"] },
+  { id: "inspector",     content: "Code review via inspector subagent",           status: "pending", deps: ["contract"], assign: "inspector" },
+  { id: "fix",           content: "Fix issues from inspector review",             status: "pending", deps: ["inspector"] },
+  { id: "commit",        content: "Git commit all code artifacts",                status: "pending", deps: ["fix"] },
+  { id: "matrix",        content: "Register experiment matrix from plan",         status: "pending", deps: ["commit"] },
+  { id: "present",       content: "Present realized code to user",                status: "pending", deps: ["matrix"] }
+]})
+```
+
+---
+
+## Step 0: Load Context
+
+Read the active plan, design config, and assets. Verify the design is complete enough to implement.
+
+```
+research_state(action="read")
+research_plan(action="list", filter_status="active")
+```
+
+If no active plan exists, error — route back to method-design.
+
+---
+
+## Step 1: Scaffold Project Structure
+
+Create the code directory structure based on the design's system graph:
+
+```
+{package}/
+  __init__.py
+  model.py          # Core mechanism implementation
+  train.py          # Training loop
+  evaluate.py       # Evaluation protocol
+  baselines/        # Baseline implementations
+  data/             # Data loading and preprocessing
+  utils/            # Shared utilities
+configs/
+  default.yaml      # Default hyperparameters
+  experiment_*.yaml # Per-experiment configs
+scripts/
+  run_sanity.sh     # Sanity contract runner
+  run_experiment.sh # Main experiment runner
+```
+
+---
+
+## Step 2: Implement Core Components
+
+Implement in this order:
+
+1. Data loading and preprocessing
+2. Core algorithm / model
+3. Training loop
+4. Evaluation protocol
+5. Baseline wrappers
+
+Commit after each major component.
+
+---
+
+## Step 3: Define Contracts
+
+### Sanity Contract
+
+A minimal end-to-end test that runs in <5 minutes:
+
+- Forward pass works
+- Loss computes
+- One optimization step runs
+- Shapes are correct
+
+### Quality Contract
+
+Measurable thresholds the code must meet:
+
+- Reproducibility: fixed seed → identical results
+- Performance: baseline runs at expected speed
+- Correctness: known input → expected output
+
+---
+
+## Step 4: Inspector Review
+
+```
+task(subagent_type="inspector", background=true):
+  "Review the codebase for:
+   - Bugs and logic errors
+   - Dead code and unused imports
+   - Naming clarity
+   - Test coverage
+   - Documentation completeness
+   Return structured report with severity ratings."
+```
+
+Fix all CRITICAL and IMPORTANT issues before proceeding.
+
+---
+
+## Step 5: Commit and Register
+
+```
+git add -A
+git commit -m "realize: implement method from plan_XXX"
+```
+
+Register the code artifact:
+
+```
+research_experiment(action="register", title="Method realization", plan="plan_XXX")
+```
+
+Register the experiment matrix from the plan's kill_set and sufficient_set.
+
+---
+
+## Step 6: Present to User and Advance
+
+**⏸ CHECKPOINT — do not proceed without user input.**
+
+**Checkpoint kind: `resource_commitment`**
+
+Before transitioning to experiment phase, the user must confirm the code artifact is worth investing real compute resources.
+
+Present:
+- Code artifact summary (what was implemented, key modules)
+- Sanity contract results (pass/fail, any warnings)
+- Quality contract results (thresholds met or missed)
+- Inspector review findings (critical/important issues fixed)
+- Experiment matrix registered from plan
+- Git commit hash for reproducibility
+- Estimated compute budget for full experiment suite
+
+**Options for user**:
+1. **Approve and advance to experiment** — confirm resource commitment for full experiments
+2. **Request code changes** — specific fixes or improvements before experiments
+3. **Rollback to design** — implementation reveals design issues
+4. **Reduce scope** — run subset of experiments due to budget constraints
+
+Record user decision rationale in journal.
+**In autonomous mode**: Agent may waive but MUST log waiver with reasoning to `phase_run.human_checkpoints`.
+
+When a human checkpoint is triggered, the system auto-generates a checkpoint brief. The brief provides full context for the human decision. If you need to regenerate or view it, use `research_checkpoint_brief(action="generate"|"read")`.
+
+### Advance state
+
+Once approved:
+```
+research_state(action="brief",
+  context_refresh={
+    used_wiki_refs: [...],
+    phase_run: "method-realize",
+    key_decisions: ["code artifact approved", "sanity contract passed"],
+    checked_skill_rules: [
+      "Sanity contract exists and is executable",
+      "Quality contract exists with measurable thresholds",
+      "Code passes inspector subagent review",
+      "Experiment matrix is registered from the active plan",
+      "All code is committed before experiment registration"
+    ],
+    drift_check: { status: "pass|warning|block", note: "..." }
+  })
+```
+
+```
+research_state(action="advance", target_phase="experiment",
+  summary="Running experiments for plan: <plan title>",
+  reason="Code artifact approved, sanity/quality contracts passed, experiment matrix registered",
+  refs_plan="plan_XXX")
+```
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| Design is unclear | Route to method-design for clarification |
+| Inspector finds critical bugs | Fix and re-run inspector |
+| Baseline code unavailable | Follow baseline-design.md decision tree |
+| Compute constraints changed | Adjust experiment matrix, document |
+| User wants design changes | Route to method-iterate |

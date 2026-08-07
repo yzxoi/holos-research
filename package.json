@@ -1,0 +1,41 @@
+{
+  "name": "holos-research",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src/",
+    "agents/",
+    "skills/",
+    "scripts/",
+    "DESIGN.md"
+  ],
+  "scripts": {
+    "gen": "bun script/generate-assets.ts",
+    "dev": "synergy-plugin dev",
+    "validate": "synergy-plugin validate --runtime-discovery",
+    "build": "synergy-plugin build",
+    "pack": "synergy-plugin pack",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check --diagnostic-level=error src/",
+    "lint:fix": "biome check --write src/",
+    "ci": "bun run gen && bun run typecheck && bun run lint && bun run test"
+  },
+  "dependencies": {
+    "@ericsanchezok/synergy-plugin": "^3.0.14",
+    "yaml": "^2.9.0",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
+    "@ericsanchezok/synergy-plugin-kit": "^3.0.14",
+    "bun-types": "^1.3.11",
+    "solid-js": "^1.9.10",
+    "typescript": "^5.8.2"
+  }
+}

@@ -1,0 +1,383 @@
+# Peer Review — Structured Adversarial Evaluation at Any Research Stage
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **Reviews recorded via object `action="review"`** — e.g. `research_idea(action="review")`, not loose files.
+2. **Reviewer subagents return text, not files.** Main agent records via the appropriate tool.
+3. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, naming conventions.
+4. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+5. **Git commit research artifacts** after modifying .research/ files.
+
+---
+
+## Prerequisites
+
+- A research object to review (idea, plan, claim, paper)
+- The Problem Anchor (from the originating phase)
+- Context material (contribution statement, method design, experiment results — as needed by the critic)
+
+---
+
+## DAG Template
+
+```mermaid
+graph LR
+    load[Load Context] --> criteria[Determine Criteria]
+    criteria --> evaluate[Evaluate Material]
+    evaluate --> score[Score Dimensions]
+    score --> writeback[Record Review]
+    writeback --> decide[Decide Verdict]
+```
+
+Nodes:
+- `load` — Load research object, anchor, and prior reviews
+- `criteria` — Select scoring dimensions by target type (idea/plan/claim/paper)
+- `evaluate` — Dispatch critic subagent for independent review
+- `score` — Collect per-dimension scores and identify weaknesses
+- `writeback` — Record review via `action="review"` on target object
+- `decide` — Pass, revise (re-enter evaluate), or rethink (escalate)
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- Read current state via `research_state(action="overview")` before acting
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- When a human checkpoint is triggered, the system auto-generates a brief; use `research_checkpoint_brief(action="read")` to view it
+- Record all reviews via object `action="review"` — never as loose files
+- Verify reviewer independence protocol before dispatching critics
+
+### Forbidden
+- Do not skip reviewer independence protocol (fresh task, no prior findings)
+- Do not modify entity files directly — use the appropriate research tools
+- Do not silently implement drifting feedback — classify as valid/debatable/wrong first
+
+### Checkpoints
+- peer_review_completed
+- review_criteria_met
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="peer review criteria")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+
+## RCM Mode (default when RDC + RCM are available)
+
+When the RDC research data center and RCM pipeline engine are both available, replace the
+entire multi-step subagent workflow below with a single RCM CLI call.
+
+RCM handles: loading paper from RDC, 4 independent reviewers (novelty, soundness, clarity),
+cross-model auditor (paper ↔ tech report), review synthesis, and gate verdict with routing
+— AND writes reviews to RDC.
+
+### Entry check
+- [ ] RDC is running
+- [ ] RCM CLI is available
+- [ ] `RDC_URL` and `RDC_RESEARCH_ID` are set
+- [ ] Paper exists in RDC (confirmed via `research_paper(action="list")`)
+
+### Step A: Load context
+
+```
+research_state(action="read")
+research_paper(action="list")
+```
+
+Identify the paper ID and title.
+
+### Step B: Call RCM review pipeline
+
+```bash
+RDC_URL=http://localhost:3000/api/v1 \
+RDC_RESEARCH_ID=<research_id> \
+accelerate run /path/to/RCM/examples/autoresearch/rcm/review.rcm \
+  --purpose "Review paper <paper_id>: <title>" \
+  --stream 2>&1 | tee /tmp/rcm-review-output.log
+```
+
+Monitor progress. Set 8-15 minute timeout.
+
+### Step C: Read results from RDC
+
+After RCM completes:
+
+```
+research_paper(action="list")
+```
+
+Read review results from RDC `reviews` table (entity_type = 'paper').
+Read gate verdict from RDC `gate_records` table.
+
+### Step D: Interpret gate verdict
+
+| Gate Verdict | Meaning | Action |
+|-------------|---------|--------|
+| `strong` | All reviewers pass, auditor confirms | Proceed to submission or revision |
+| `acceptable` | Minor concerns, no critical issues | Fix and proceed |
+| `insufficient` | Significant concerns | Route to specific phase |
+| `blocked` | Auditor found integrity issue | Stop, human intervention required |
+
+Gate may include routing hints (e.g. "ROLLBACK compose", "ROLLBACK experiment").
+
+### Step E: Record and route
+
+```
+research_state(action="block"|"resume"|"redirect",
+  reason="<gate verdict and routing>")
+```
+
+### RCM mode checklist
+- [ ] RCM review process completed without error
+- [ ] 4 reviews exist in RDC reviews table
+- [ ] Gate verdict is recorded in gate_records
+- [ ] Routing decision implemented
+
+### Fallback
+If RCM is unavailable, fall through to the Traditional Subagent Mode below.
+
+---
+## Core Flow
+
+### Step 1: Determine Review Parameters
+
+The calling skill provides:
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `target_type` | What kind of object | `idea` / `plan` / `claim` / `paper` |
+| `target_id` | Object ID | `idea_014` / `plan_002` / `claim_003` / `paper_001` |
+| `focus` | What to evaluate | `"novelty and feasibility"` / `"method specificity and simplicity"` / `"evidence sufficiency"` |
+| `material` | Content for review | The full text of the object's `.md` file |
+| `anchor` | Research anchor | From `research_state(action="read")` anchor field |
+| `scoring_dimensions` | What to score (optional) | Custom dimension set or use defaults |
+| `prior_reviews` | Previous review rounds (optional) | Score history from prior rounds |
+
+### Step 2: Prepare the Critic Prompt
+
+Build the prompt for the `critic` subagent. The prompt MUST include:
+
+1. **Problem Anchor** — always first. The critic must check for drift.
+2. **Full material** — the complete content to review, not a summary. The critic reads independently.
+3. **Focus directive** — what aspects to emphasize for this review.
+4. **Scoring dimensions** — either phase-specific or default.
+5. **Prior round scores** — if this is not the first round, include the score history so the critic can track progress.
+
+#### Default scoring dimensions by target type
+
+**Idea review:**
+- Novelty (30%): Is the insight genuine and novel?
+- Significance (25%): Does solving this matter?
+- Feasibility (20%): Can this be investigated with available resources?
+- Scope (15%): Is the problem well-scoped?
+- Clarity (10%): Is the idea clearly articulated?
+
+**Method review (plan):**
+- Problem Fidelity (15%): Does the method attack the original bottleneck?
+- Method Specificity (20%): Concrete enough to implement?
+- Contribution Quality (20%): Focused, novel, no sprawl?
+- Frontier Leverage (10%): Uses current primitives appropriately?
+- Impact Potential (15%): If this method works, does it change how people think about the problem? Would other researchers build on it? Is the broader significance statement credible?
+- Feasibility (10%): Can this be built with stated resources?
+- Validation Focus (5%): Experiments minimal but sufficient?
+- Venue Readiness (5%): Sharp and timely for a top venue?
+
+**Claim review:**
+- Evidence Sufficiency (30%): Is each claim backed by adequate evidence?
+- Honesty (25%): Are claims scoped correctly, no overclaim?
+- Caveat Completeness (20%): Are all necessary caveats stated?
+- Consistency (15%): Do claims not contradict each other?
+- Traceability (10%): Can each claim be traced to specific experiments?
+
+**Paper review (simulated venue):**
+- Novelty (15%): Does the contribution survive reduction test?
+- Soundness (20%): Is the methodology rigorous?
+- Significance (25%): Does the paper clearly articulate WHY this work matters beyond the immediate technical result? Would a reader understand what changed in the field because of this work? Does the introduction connect the technical problem to a bigger question?
+- Clarity (20%): Is the paper well-written and organized?
+- Reproducibility (10%): Could someone reproduce this?
+- Overall (10%): Venue-calibrated holistic assessment
+
+### Step 3: Dispatch the Critic
+
+**Reviewer Independence Protocol:**
+
+Every review dispatch MUST follow these rules to prevent confirmation bias and ensure honest evaluation:
+
+1. **Fresh task per round** — each `task()` call is stateless. Never include prior round's findings, scores, or fix summaries in the prompt.
+2. **Cross-model when high-stakes** — for paper-level reviews (audit simulated review, venue-cycle pre-submit), use `category="most-capable"` to route to a different model family than the one writing the paper. This prevents self-review bias.
+3. **Zero-context for audit** — during paper-audit, the critic receives ONLY the current paper source. No experiment logs, no narrative reports, no claim summaries. The critic must form independent conclusions from the paper text alone.
+4. **No leading language** — never say "we fixed X" or "since last round". The reviewer should not know what changed.
+
+**Empirical evidence for independence**: Running the same paper with context-carrying prompts inflates scores from a true 3/10 to a fake 8/10 over 5 rounds. Switching to fresh, stateless reviews recovers the true assessment.
+
+```
+task(subagent_type="critic", background=true, category="most-capable"):
+  "[Focus-specific preamble]
+
+   Problem Anchor:
+   [paste anchor verbatim]
+
+   === MATERIAL TO REVIEW ===
+   [paste full content from target .md]
+   === END MATERIAL ===
+
+   [Prior round scores if applicable]
+
+   Score these dimensions (1-10):
+   [list dimensions with weights]
+
+   For each dimension < 7:
+   - Specific weakness
+   - Concrete fix
+   - Priority: CRITICAL / IMPORTANT / MINOR
+
+   Also provide:
+   - Simplification Opportunities (or NONE)
+   - Drift Warning (or NONE)
+   - Verdict: READY (overall ≥ 9, no drift) / REVISE / RETHINK
+   Return your review as structured text. The main agent records it via the appropriate research tool."
+```
+
+### Step 4: Record the Review
+
+After the critic returns, record the review on the target object:
+
+```
+research_[type](action="review", id="[target_id]",
+  reviewer="critic",
+  focus="[focus]",
+  verdict="pass|revise|rethink",
+  summary="[critic's overall assessment]",
+  scores={[dimension scores]},
+  action_items=[list of prioritized fixes],
+  review_body="[critic's full response]")
+```
+
+This writes:
+- A structured entry to `[target_id].reviews.jsonl`
+- The full review text to `[target_id].review.NNN.md`
+- An auto-appended timeline event (`[type].reviewed`)
+
+### Step 5: Interpret the Verdict
+
+| Verdict | Meaning | Next Action |
+|---------|---------|-------------|
+| `pass` | No CRITICAL issues, overall score high | Proceed to next phase |
+| `revise` | Direction right, but significant issues | Fix issues, re-review (Step 6) |
+| `rethink` | Fundamental problems | May need phase rollback |
+
+### Step 6: Revision Loop (if verdict is `revise`)
+
+#### 6.1 Parse feedback
+
+Extract actionable items. Classify each:
+
+- **Valid** (must fix): Concrete, evidence-backed, addresses a real weakness
+- **Debatable** (reconsider): Reasonable but arguable — revise but explain reasoning
+- **Wrong / drifting** (push back): Would change the problem being solved, adds unnecessary complexity, or misunderstands the approach — reject with evidence
+
+#### 6.2 Execute fixes
+
+The calling skill handles the actual fixes. This skill orchestrates the review cycle:
+
+1. Calling skill fixes the issues based on the parsed feedback
+2. Calling skill updates the object's `.md`
+3. Calling skill invokes this skill again for the next round
+
+#### 6.3 Re-review
+
+Re-dispatch the critic with:
+- Updated material
+- Problem Anchor (same as before — verify no drift)
+- Score history from all prior rounds
+- Summary of what changed
+
+#### 6.4 Convergence rules
+
+- **Maximum rounds**: Defined by the calling skill (typically 3-5)
+- **Stop on READY**: Overall score ≥ threshold and verdict is `pass`
+- **Negative progress**: Score does not improve for 2 consecutive rounds → recommend `rethink`
+- **Maximum rounds reached without READY**: Return the best version with honest remaining weaknesses. The calling skill decides whether to proceed or roll back.
+
+### Step 7: Multi-Reviewer Patterns
+
+For high-stakes reviews (e.g. paper-audit, venue-cycle), the calling skill may request multiple independent reviews:
+
+#### Pattern A: Parallel Independent Reviews
+
+```
+task(subagent_type="critic", background=true):
+  "[focus: novelty and contribution]...
+    Return your review as structured text. The main agent records it via the appropriate research tool."
+task(subagent_type="critic", background=true):
+  "[focus: methodology and soundness]...
+    Return your review as structured text. The main agent records it via the appropriate research tool."
+task(subagent_type="critic", background=true):
+  "[focus: experimental rigor]...
+    Return your review as structured text. The main agent records it via the appropriate research tool."
+```
+
+Each review is recorded separately. The calling skill synthesizes:
+- Take the **intersection** of valid concerns (issues raised by 2+ reviewers)
+- Take the **union** of CRITICAL issues (any CRITICAL from any reviewer)
+- Resolve contradictions by presenting both assessments
+
+#### Pattern B: Sequential Deepening
+
+1. First round: broad review (all dimensions)
+2. Second round: focused only on dimensions that scored < 7
+3. Third round: focused only on remaining CRITICAL issues
+
+Each round narrows the scope.
+
+#### Pattern C: Cross-Agent Synthesis
+
+For the most thorough reviews, combine critic with other agents:
+
+```
+task(subagent_type="critic", ...):     "[adversarial evaluation] Return your review as structured text. The main agent records it via the appropriate research tool."
+task(subagent_type="methodologist", ...): "[constructive design feedback] Return your analysis as structured text."
+task(subagent_type="auditor", ...):    "[fact verification] Return your audit report as structured text. The main agent records findings via the appropriate research tool."
+task(subagent_type="editor", ...):     "[writing quality review] Return your editorial feedback as structured text with specific location references."
+```
+
+The calling skill synthesizes across all four perspectives. Each agent records their review separately using the appropriate object `action="review"`.
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Present every review result to the user. Wait for user to classify feedback (valid/debatable/wrong) before revising.
+- **guided**: Present only CRITICAL and RETHINK results. Auto-process IMPORTANT and MINOR.
+- **autonomous**: Auto-process all feedback. Pause only if verdict is `rethink` (potential phase rollback).
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| Critic gives all 9-10 scores (suspiciously high) | Re-run with explicit instruction to apply each core test. Inflated reviews waste cycles. |
+| Critic's feedback contradicts itself | Extract the non-contradictory subset. Flag the contradiction for the calling skill. |
+| Critic suggests changes that would cause drift | Classify as "wrong/drifting". Do NOT implement. Present the drift risk to the calling skill. |
+| Multiple reviewers fundamentally disagree | Present both assessments. The calling skill (or user) resolves. Do not pick a winner. |
+| Max rounds reached without convergence | Return best version with honest gap list. The calling skill decides next steps. |
+| Critic focuses on wrong stage (e.g. paper-level feedback for an idea review) | Re-dispatch with clearer focus directive. |
+

@@ -1,0 +1,465 @@
+# Idea Refine — Incremental Idea Optimization From Feedback
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL files under `.research/`** — never write to project root.
+2. **Ideas via `research_idea(action="create"|"derive"|"update"|"park"|"reject")`** — writes to `.research/ideas/`.
+3. **Reviews via `research_idea(action="review")`** — not free-text files.
+4. **Subagents return text, not files.** Main agent writes via tools.
+5. **This is NOT idea-explore.** Do not run a full survey from scratch. Build on existing survey, ideas, and banlist.
+6. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, naming conventions.
+7. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+8. **Git commit research artifacts** after modifying .research/ files.
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: explore`
+- At least one round of `idea-explore` has been completed (ideas exist in `.research/ideas/`)
+- Feedback exists: user feedback, reviewer feedback, or agent self-assessment indicating current ideas are insufficient
+
+## Output contract
+
+By the end of this skill:
+
+- New or derived ideas exist in `.research/ideas/` addressing the feedback
+- Previously rejected/parked ideas are marked accordingly
+- The wiki survey is incrementally updated with any new papers found
+- Timeline records the refinement round
+- The idea pool is ready for another round of refinement, or for selection and advance to `ground`
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- Read current state via `research_state(action="overview")` before acting
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- When a human checkpoint is triggered, the system auto-generates a brief; use `research_checkpoint_brief(action="read")` to view it
+- Register ideas via `research_idea(action="create"|"derive")` — never as loose files
+- Check banlist before generating new ideas to avoid duplication
+
+### Forbidden
+- Do not re-run full survey from scratch — build on existing survey and ideas
+- Do not silently update the anchor — present direction shifts to user
+- Do not regenerate parked or rejected ideas without new evidence
+
+### Checkpoints
+- refinement_rationale_recorded
+- idea_updated
+
+---
+
+## DAG Template
+
+Create this DAG at skill entry. Adjust node content based on the specific feedback.
+
+```
+dagwrite({ nodes: [
+  { id: "load",     content: "Load ideas, survey, feedback, anchor",           status: "pending", deps: [] },
+  { id: "diagnose", content: "Diagnose gaps in current idea pool",              status: "pending", deps: ["load"] },
+  { id: "research", content: "Targeted literature search on identified gaps",   status: "pending", deps: ["diagnose"], assign: "scholar" },
+  { id: "generate", content: "Generate 3-6 targeted new/derived ideas",         status: "pending", deps: ["research"] },
+  { id: "filter",   content: "Anchor alignment + novelty + feasibility filter", status: "pending", deps: ["generate"] },
+  { id: "review",   content: "Adversarial review of refined candidates",        status: "pending", deps: ["filter"], assign: "critic" },
+  { id: "present",  content: "Present refined pool, decide next action",        status: "pending", deps: ["review"] }
+]})
+```
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="idea refinement")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## Step 0: Load Context
+
+### 0.1 Read state, anchor, and round info
+
+```
+research_state(action="read")
+research_idea(action="list")
+research_timeline(action="read", last=20)
+```
+
+Extract:
+- `anchor` from state — the user's research direction
+- All existing ideas with their statuses
+- Previous refinement rounds from timeline (look for `idea.refine` events)
+- The current `explore` round number (if tracked in state summary)
+
+### 0.2 Read the survey
+
+```
+research_wiki(action="query")
+```
+
+Read `.research/literature/LIT_CONTEXT.md` for the compressed landscape. This is the baseline — do NOT re-survey from scratch.
+
+### 0.3 Identify the feedback
+
+The feedback driving this refinement comes from one of:
+
+1. **User feedback** — parsed from `$ARGUMENTS` or conversation history. Examples: "these ideas are too incremental", "I want something about X instead", "idea_003 is close but needs Y"
+2. **Reviewer feedback** — from `research_idea(action="list")`, read `.reviews.jsonl` of reviewed ideas
+3. **Self-assessment** — if running in autonomous mode, assess whether any ideas score high enough on novelty × feasibility × anchor-alignment to justify selection
+
+Classify the feedback into:
+- **Direction shift**: the anchor itself needs updating → update via `research_state(anchor="...")`
+- **Quality gap**: ideas exist in the right direction but are too vague/incremental/infeasible
+- **Coverage gap**: important sub-directions of the anchor are not represented in the idea pool
+- **Specificity gap**: ideas are at the right level of ambition but lack concrete mechanism detail
+
+### 0.4 Mark DAG node complete
+
+```
+dagpatch({ nodes: [{ id: "load", status: "completed" }] })
+```
+
+---
+
+## Step 1: Diagnose Gaps
+
+Based on the feedback classification from Step 0.3, produce a structured diagnosis:
+
+```markdown
+## Refinement Diagnosis (Round N)
+
+### Feedback Summary
+- Source: [user / reviewer / self-assessment]
+- Core issue: [direction shift / quality gap / coverage gap / specificity gap]
+
+### Current Pool Assessment
+- Total ideas: N (proposed: X, exploring: Y, parked: Z, rejected: W)
+- Anchor-aligned ideas: [list IDs]
+- Best candidate so far: [idea_XXX — why]
+- What's missing: [specific gap description]
+
+### Banlist (ideas to NOT regenerate)
+- [idea_XXX title — reason parked/rejected]
+- [previously explored direction — why it failed]
+
+### Targeted Search Directions
+- Direction 1: [specific sub-topic to investigate]
+- Direction 2: [specific sub-topic to investigate]
+```
+
+Write this to the appropriate idea `.md` files or timeline. Do not create loose files.
+
+```
+research_timeline(action="append_free_event", event_type="insight",
+  summary="Idea refinement round N diagnosis: [core gap]. Targeting: [directions]",
+  event_refs=[...existing idea IDs...])
+```
+
+```
+dagpatch({ nodes: [{ id: "diagnose", status: "completed" }] })
+```
+
+---
+
+## Step 2: Targeted Literature Search
+
+This is NOT a full survey. Search only the specific gaps identified in Step 1.
+
+### 2.1 Dispatch targeted scholars
+
+For each gap direction, dispatch a focused scholar:
+
+```
+task(subagent_type="scholar", background=true, dag_node_id="research"):
+  "Search for papers from 2024-2026 specifically about [gap direction].
+   Focus on: mechanisms that address [specific bottleneck], not general surveys.
+   For core-relevance papers:
+   1. Call research_wiki(action='ingest_paper', title='...', authors=[...], year=..., venue='...', arxiv='...', thesis='...', method='...', key_results='...', limitations='...', project_relevance='...', relevance='core')
+   2. Download PDF via arxiv_download to .research/literature/papers/{arxiv_id}.pdf
+   For peripheral papers: return title/arxiv/one-line-method as text.
+   Return: 3-5 most relevant papers with their key mechanisms and limitations."
+```
+
+If multiple gap directions exist, dispatch multiple scholars in parallel.
+
+### 2.2 Supplement wiki
+
+For any papers the scholars found but didn't ingest:
+
+```
+research_wiki(action="ingest_paper", ...)
+research_wiki(action="link", from="idea_XXX", to="<slug>", edge_type="inspired_by", ...)
+```
+
+### 2.3 Update gap map if new gaps discovered
+
+```
+research_wiki(action="register_gap", description="...", source_paper="<slug>")
+```
+
+---
+
+## Step 3: Generate Targeted Ideas
+
+### 3.1 Dispatch idea generators with distinct lenses
+
+Deploy `config.exploration.idea_generators` (default: 3) parallel scholars, each with a different creative constraint. Unlike idea-explore, these prompts include the banlist, existing ideas, and specific gap diagnosis.
+
+```
+task(subagent_type="scholar", background=true):
+  "You are generating research ideas to fill a specific gap.
+
+   ANCHOR: [paste anchor from state]
+   EXISTING IDEAS (do NOT duplicate): [list titles + one-line summaries of all non-rejected ideas]
+   BANLIST (do NOT regenerate): [list parked/rejected ideas with reasons]
+   GAP TO FILL: [from diagnosis]
+   NEW PAPERS FOUND: [from Step 2]
+
+   LENS: [mechanism-first / application-driven / simplification-of-existing]
+
+   Generate 2-3 ideas that:
+   1. Directly address the diagnosed gap
+   2. Are concrete enough to have a clear mechanism (not just 'apply X to Y')
+   3. Do NOT overlap with existing or banned ideas
+   4. Stay aligned with the anchor
+
+   For each idea return:
+   - Title (specific, mechanism-level)
+   - One-paragraph core insight
+   - Key mechanism
+   - Why this fills the gap
+   - Feasibility estimate (data/compute/timeline)
+   - Closest existing work and differentiation"
+```
+
+### 3.2 Register new ideas
+
+For each generated idea, decide: create new or derive from existing.
+
+**If the idea builds on an existing one:**
+```
+research_idea(action="derive", title="...", summary="...",
+  derived_from=["idea_XXX"],
+  round=N)
+```
+
+**If the idea is genuinely new:**
+```
+research_idea(action="create", title="...", summary="...", round=N)
+```
+
+Write the full idea content to the `.md` file using the `edit` tool:
+```markdown
+## Core Insight
+[What is the key mechanism or observation?]
+
+## Mechanism
+[How would this work concretely?]
+
+## Gap Addressed
+[Which gap from the diagnosis does this fill?]
+
+## Differentiation
+[How is this different from existing ideas and closest work?]
+
+## Feasibility
+[Data, compute, timeline requirements]
+
+## Anchor Alignment
+[How does this serve the research anchor?]
+```
+
+### 3.3 Park or reject stale ideas
+
+Based on the diagnosis, explicitly park or reject ideas that are no longer promising:
+
+```
+research_idea(action="park", id="idea_XXX", reason="Superseded by idea_YYY which addresses the same gap more directly")
+research_idea(action="reject", id="idea_ZZZ", reason="Literature search confirmed this approach was tried in [paper] and failed because [reason]")
+```
+
+```
+dagpatch({ nodes: [{ id: "generate", status: "completed" }] })
+```
+
+---
+
+## Step 4: Filter Candidates
+
+### 4.1 Anchor alignment filter
+
+For each new/derived idea, classify:
+- **ALIGNED**: directly addresses the anchor's bottleneck
+- **ADJACENT**: related but solves a neighboring problem — keep only if novelty is high
+- **DRIFTED**: solves a different problem — reject immediately
+
+```
+research_idea(action="reject", id="idea_XXX", reason="Anchor drift: solves [different problem] not [anchor problem]")
+```
+
+### 4.2 Novelty quick-check
+
+For each ALIGNED/ADJACENT idea, do a quick novelty search:
+
+```
+task(subagent_type="scout", background=true):
+  "Search arXiv, Google Scholar, and GitHub for work matching this idea:
+   Title: [idea title]
+   Mechanism: [key mechanism]
+   Return: closest 3 papers/repos with similarity assessment.
+   If an exact match exists, say so clearly."
+```
+
+If exact match found → reject with evidence:
+```
+research_idea(action="reject", id="idea_XXX", reason="Exact match found: [paper title, arxiv ID]")
+```
+
+### 4.3 Feasibility gate
+
+Reject ideas that are clearly infeasible given known constraints from `ASSETS.md` and `research_state`:
+- Requires data that doesn't exist and can't be generated
+- Requires compute beyond available budget
+- Requires capabilities beyond current tooling
+
+```
+dagpatch({ nodes: [{ id: "filter", status: "completed" }] })
+```
+
+---
+
+## Step 5: Adversarial Review of Survivors
+
+For ideas that survived filtering, run a focused review. Follow the reviewer independence protocol from `peer-review`: fresh task per round, no prior round findings in the prompt.
+
+```
+task(subagent_type="critic", background=true, dag_node_id="review"):
+  "Review these candidate research ideas. This is refinement round N — prior rounds produced ideas that were [diagnosis of why they weren't good enough].
+
+   ANCHOR: [paste anchor]
+
+   CANDIDATES:
+   [For each surviving idea: title, core insight, mechanism, differentiation]
+
+   MUST CHECK FIRST — Anchor Alignment:
+   Does each idea genuinely address the anchor's bottleneck, or does it drift?
+
+   Then score each idea on:
+   1. Novelty (1-10): Is this genuinely new or a rebrand?
+   2. Mechanism clarity (1-10): Could an engineer start implementing?
+   3. Feasibility (1-10): Realistic with stated resources?
+   4. Impact potential (1-10): If this works, does it change the field?
+   5. Anchor alignment (1-10): Does this solve the actual problem?
+
+   OVERALL per idea (1-10): weighted toward novelty and anchor alignment.
+
+   For each idea scoring < 7 overall: specific weakness + concrete fix.
+   Rank all ideas. Identify the best 1-2.
+   Verdict per idea: SELECT / REFINE_MORE / PARK / REJECT"
+```
+
+Record reviews:
+```
+research_idea(action="review", id="idea_XXX",
+  reviewer="critic",
+  verdict="pass|revise|rethink",
+  scores={novelty: N, mechanism_clarity: N, feasibility: N, impact: N, anchor_alignment: N, overall: N},
+  summary="...",
+  action_items=[...],
+  review_body="...")
+```
+
+---
+
+## Step 6: Present and Decide
+
+### 6.1 Build the refined pool summary
+
+Compile:
+- All surviving ideas with review scores
+- Parked/rejected ideas this round with reasons
+- Round-over-round progress (if prior refinement rounds exist)
+- Best candidate(s) and their strengths/weaknesses
+
+### 6.2 Decision routing
+
+**If participation_mode is `collaborative`:**
+
+Present the refined pool to the user. Ask:
+- Is any idea ready for selection? → `research_idea(action="select", id="idea_XXX")`
+- Need another refinement round? → re-enter this skill
+- Want to shift direction? → update anchor, re-enter this skill
+
+**If participation_mode is `guided`:**
+
+Present only if a clear top candidate exists (overall score ≥ `config.exploration.idea_select_score`, default: 8). Otherwise auto-iterate.
+
+**If participation_mode is `autonomous`:**
+
+If any idea scores ≥ `config.exploration.idea_select_score` overall with verdict SELECT → auto-select:
+```
+research_idea(action="select", id="idea_XXX", decided_by="agent",
+  reason="Score X/10 after N refinement rounds. Highest in pool by Y points.")
+```
+
+If no idea qualifies after `config.exploration.max_refine_rounds` (default: 3) refinement rounds → block:
+```
+research_state(action="block", blocked_on="No idea meets selection threshold after N refinement rounds. User input needed on direction.")
+```
+
+### 6.3 Record the round
+
+```
+research_timeline(action="append_free_event", event_type="decision",
+  summary="Idea refinement round N complete. Pool: X ideas (Y new, Z parked). Best: idea_XXX (score N/10).",
+  event_refs=[...all idea IDs touched this round...])
+```
+
+### 6.4 Update state if selected
+
+If an idea was selected:
+```
+research_state(action="advance", target_phase="ground",
+  summary="Grounding selected idea: [title]",
+  reason="idea_XXX selected after N refinement rounds, score X/10",
+  refs_idea="idea_XXX")
+```
+
+```
+dagpatch({ nodes: [{ id: "present", status: "completed" }] })
+```
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after diagnosis (Step 1) if direction shift detected. Pause after generation (Step 3) to confirm new ideas. Pause at final decision (Step 6).
+- **guided**: Pause at final decision (Step 6) only.
+- **autonomous**: Run full workflow. Pause only if blocked (`config.exploration.max_refine_rounds` reached without qualifying idea) or if anchor drift detected.
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| No existing ideas (idea-explore never ran) | Redirect to idea-explore: `skill(name="idea-explore")` |
+| All ideas rejected after filtering | Diagnosis was too narrow. Broaden gap search, try different creative lenses. |
+| Scholar returns nothing new | The gap may be genuinely unexplored (good) or the search terms were wrong. Try broader/different terms via scout. |
+| Critic rejects everything | Check if the anchor is too narrow or the feasibility constraints too tight. Present to user. |
+| 3+ refinement rounds without progress | Block the project. The direction may need fundamental rethinking. |
+| Anchor drift detected mid-refinement | Do not silently update. Present both directions to user. |
+| Context compaction mid-round | Reload from `research_state(action="read")` + `research_idea(action="list")` + `research_timeline(action="read", last=20)`. The `.research/` directory is the checkpoint. |

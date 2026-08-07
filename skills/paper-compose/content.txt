@@ -1,0 +1,660 @@
+# Paper Compose — From Claims to Complete Manuscript
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL research files under `.research/`** — paper source files go in `paper/` directory.
+2. **Exhibits via `research_exhibit(action="create")`** — writes to `.research/exhibits/`.
+3. **Paper via `research_paper(action="create")`** — writes to `.research/manuscripts/`.
+4. **Figure scripts** → `paper/scripts/` or `.research/scripts/`. Generated figures → `paper/figures/`.
+5. **Subagents (scribe/editor) return text, not files.** The main agent writes to the correct location.
+6. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, naming conventions.
+7. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+8. **Git commit research artifacts** after modifying .research/ files.
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- [ ] Every paper-visible result references specific experiment/exhibit
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- [ ] Claims map to RQG-backed evidence
+- [ ] StorySpine drives intro arc (field_assumption → pain_point → gap → insight → method → evidence → implication)
+- [ ] Overclaim check passes before paper-ready
+- [ ] Record used_wiki_refs in phase_run.context_refresh
+
+### Forbidden
+- [ ] Do not state strong claims without RQG pass
+- [ ] Do not ignore negative/weak results
+- [ ] Do not fabricate or approximate metrics
+
+### Checkpoints
+- [ ] paper_ambition: User confirms claim strength (strong/moderate/weak)
+- [ ] submission_readiness: User confirms before submission
+
+---
+
+Load references as needed:
+- `references/exhibit-guide.md` — figure/table decision routing and quality standards
+- `references/data-figures.md` — 17 chart types with code templates
+- `references/diagram-guide.md` — architecture diagrams (Mermaid/draw.io/TikZ)
+- `references/writing-guide.md` — narrative strategies and venue differences
+- `references/prose-quality.md` — paragraph/sentence level quality (5-pass audit, reverse outline test)
+- `references/latex-conventions.md` — compilation and venue-specific LaTeX rules
+
+---
+
+## RCM Mode (default when RDC + RCM are available)
+
+When the RDC research data center and RCM pipeline engine are both available, replace the
+entire multi-step subagent workflow below with a single RCM CLI call.
+
+RCM handles both compose phases:
+- **Phase 1** (compose_report.rcm): reads experiments/claims from RDC, produces tech report
+- **Phase 2** (compose_paper.rcm): reads tech report + claims, writes paper + paper_sections + claims
+
+Synergy still handles exhibit planning, figure generation, LaTeX compilation, and venue-cycle
+(these require code execution, visual verification, and submission management).
+
+### Entry check
+- [ ] RDC is running
+- [ ] RCM CLI is available (`which accelerate`)
+- [ ] `RDC_URL` and `RDC_RESEARCH_ID` are set
+- [ ] Focus phase is `compose` and claims are `final` (via `research_claim(action="list")`)
+- [ ] Experiment results are complete
+
+### Step A: Load context
+
+```
+research_state(action="read")
+research_claim(action="list", filter_status="final")
+research_experiment(action="list")
+```
+
+### Step B: Call RCM compose pipeline
+
+```bash
+RDC_URL=http://localhost:3000/api/v1 \
+RDC_RESEARCH_ID=<research_id> \
+accelerate run /path/to/RCM/examples/autoresearch/rcm/compose.rcm \
+  --purpose "Compose paper for <project>" \
+  --stream 2>&1 | tee /tmp/rcm-compose-output.log
+```
+
+Monitor progress. Set 15-25 minute timeout (compose is the longest RCM pipeline).
+
+### Step C: Read results from RDC
+
+After RCM completes:
+
+```
+research_paper(action="list")            // should have latest paper
+research_claim(action="list")            // claims may have been refined
+```
+
+Read the paper sections from RDC `paper_sections` table.
+Read the tech report from RDC `tech_reports` table.
+
+### Step D: Generate exhibits (Synergy responsibility)
+
+Exhibits require code execution, visual verification, and LaTeX integration —
+these stay with Synergy, not RCM.
+
+1. Plan exhibits from claims + experiments
+2. Generate figures/tables via scripts
+3. Verify and approve exhibits
+4. Bind exhibits to paper
+
+### Step E: Present to user
+
+Present the paper draft with:
+- Section structure and completeness
+- Key exhibits generated
+- Claim coverage
+- Gate verdict from RCM
+
+### Step F: Advance to paper audit
+
+```
+research_paper(action="advance", id="paper_001", target_status="revising")
+research_state(action="advance", target_phase="compose",
+  summary="Paper drafted via RCM compose pipeline, exhibits pending audit",
+  reason="Paper composed, advancing to audit",
+  refs_paper="paper_001")
+```
+
+### RCM mode checklist
+- [ ] RCM compose process completed without error
+- [ ] Paper exists in RDC with sections populated
+- [ ] Claims have facet and evidence_trace populated
+- [ ] Tech report exists with result traceability
+- [ ] Gate verdict is `strong` or `acceptable`
+- [ ] Exhibits planned and generated
+- [ ] Paper can advance to paper-audit
+
+### Fallback
+If RCM is unavailable, fall through to the Traditional Subagent Mode below.
+
+---
+## DAG Template
+
+Create this DAG at skill entry. Exhibit production and structure can start in parallel.
+
+```
+dagwrite({ nodes: [
+  { id: "load",        content: "Load claims, experiments, wiki context",            status: "pending", deps: [] },
+  { id: "exh-plan",    content: "Map claims to exhibits, plan all figures/tables",   status: "pending", deps: ["load"] },
+  { id: "exh-produce", content: "Generate, render, verify, approve exhibits",        status: "pending", deps: ["exh-plan"] },
+  { id: "structure",   content: "Register paper, bind claims/exhibits, set sections", status: "pending", deps: ["exh-plan"] },
+  { id: "write",       content: "Section-by-section writing via scribe+editor",      status: "pending", deps: ["exh-produce", "structure"] },
+  { id: "quality",     content: "5-pass prose audit + reverse outline test",         status: "pending", deps: ["write"] },
+  { id: "coherence",   content: "Full-paper coherence check via editor",             status: "pending", deps: ["quality"], assign: "editor" },
+  { id: "supplement",  content: "Write supplementary material",                       status: "pending", deps: ["write"] },
+  { id: "compile",     content: "LaTeX compilation and formatting check",            status: "pending", deps: ["coherence", "supplement"] },
+  { id: "present",     content: "Present to user, advance to audit",                 status: "pending", deps: ["compile"] }
+]})
+```
+
+`exh-produce` and `structure` run in parallel after exhibit planning.
+`quality` and `supplement` can also overlap if supplementary doesn't depend on main-text revisions.
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: compose`
+- Core claims are `final` via `research_claim`
+- Experiment results are complete and integrity-checked
+
+## Output contract
+
+- A `paper_XXX` object exists with status `ready`
+- All main-text figures and tables are registered as `exhibit` objects with status `approved`
+- Claims and exhibits are bound to the paper via `research_paper(bind)`
+- LaTeX/markdown source exists in `paper/` directory
+- Supplementary material structure is planned
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+Before beginning any work in this phase:
+
+1. **Load core state**:
+   ```
+   research_state(action="read")
+   ```
+   - Load `state.focus`, `active_phase_run`, and `anchor`
+   - Identify active paper from `focus.refs.paper`
+
+2. **Load relevant claims, experiments, and positioning**:
+   - Read final claims via `research_claim(action="list")`
+   - Read experiments via `research_experiment(action="list")`
+   - Read `positioning/idea_*.story.yaml` for grounded StorySpine
+   - Read `positioning/story_spine_*.yaml` for StorySpine (grounded_angle provides the paper path direction)
+   - Read active plan's `.md` for method design
+   - Read idea's `.md` for contribution statement and positioning matrix
+
+3. **Load wiki context**:
+   ```
+   research_wiki(action="query")
+   ```
+   - Read relevant `papers/{slug}.md` for related work references
+   - Read wiki edges for literature relationships
+
+4. **Record wiki refs**:
+   - Record all `used_wiki_refs` in `phase_run.context_refresh`
+
+5. **Check skill checklist rules**:
+   - Review Must/Forbidden/Checklists below
+   - Record `checked_skill_rules` in `phase_run.context_refresh`
+
+6. **Drift check**:
+   - Verify paper composition still addresses `anchor` and grounded StorySpine
+   - If drift detected, flag before proceeding
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","claims","experiments","plan","wiki"], checked_skill_rules: true})
+```
+
+---
+
+## Step 0: Load Context
+
+```
+research_state(action="read")
+research_claim(action="list")         // all final claims
+research_experiment(action="list")    // all experiments for result data
+research_wiki(action="query")         // literature landscape for related work
+```
+
+Read the active plan's `.md` for the method design. Read the idea's `.md` for the contribution statement and positioning matrix.
+
+---
+
+## Step 1: Exhibit Planning
+
+Before writing a single word, plan every figure and table the paper needs. Claims drive exhibit design — not the other way around.
+
+### 1.1 Map claims to exhibits
+
+For each final claim, determine what visual evidence supports it:
+
+| Claim | Exhibit Type | Content | Priority |
+|-------|-------------|---------|----------|
+| Main result | table | Main comparison table (method vs baselines) | Must-have |
+| Main result | figure | Training curves / convergence | Should-have |
+| Ablation finding | table | Ablation results | Must-have |
+| Analysis insight | figure | Visualization of the mechanism | Must-have |
+| Robustness | table | Results across conditions | Should-have |
+
+### 1.2 Plan supplementary exhibits
+
+Supplementary material for Nature-level submissions typically needs:
+- Extended result tables (full metrics, all datasets, all seeds)
+- Additional ablations not shown in main text
+- Implementation details as figures (system architecture, data pipeline)
+- Failure case examples
+- Hyperparameter sensitivity analysis
+
+### 1.3 Register all exhibits
+
+For each planned exhibit:
+
+```
+research_exhibit(action="create",
+  title="Main comparison table",
+  kind="table",
+  label="tab:main_results")
+
+research_exhibit(action="bind_sources",
+  id="exh_001",
+  experiments=["exp_007", "exp_008", "exp_009"],
+  claims=["claim_001"],
+  script="scripts/gen_main_table.py",
+  data_path="results/")
+```
+
+---
+
+## Step 2: Exhibit Production
+
+**Load `references/exhibit-guide.md` for detailed figure/table standards.**
+
+For each registered exhibit:
+
+### 2.1 Generate
+
+Use `master` subagent to draft generation scripts, then use the `write` tool to save each script to `paper/scripts/` or `.research/scripts/`:
+
+```
+task(subagent_type="master"):
+  "Write a Python script to generate [exhibit description].
+   Input data: [experiment IDs and metric paths]
+   Output: [figure format and path]
+   Style requirements: [from exhibit-guide reference]
+   Write scripts to code/ or paper/scripts/. Return a summary of what was created."
+```
+
+Run the script, verify the output visually.
+
+### 2.2 Record render
+
+```
+research_exhibit(action="render", id="exh_001", output_path="paper/figures/main_table.pdf")
+```
+
+### 2.3 Verify
+
+Check data-exhibit consistency:
+- Do the numbers in the table match the experiment records?
+- Does the figure accurately represent the underlying data?
+- Are axes labeled, units specified, legends present?
+
+```
+research_exhibit(action="verify", id="exh_001")
+```
+
+### 2.4 Review visual quality
+
+Use `editor` subagent for visual quality assessment:
+
+```
+task(subagent_type="editor"):
+  "Review this figure/table for publication quality:
+   [describe the exhibit]
+   Check: resolution, font size, color scheme, accessibility (colorblind-safe),
+   caption completeness, axis labels, legend, grid lines, overall clarity.
+   Return your editorial feedback as structured text with specific location references."
+```
+
+Record the review:
+```
+research_exhibit(action="review", id="exh_001",
+  reviewer="editor", focus="visual quality", ...)
+```
+
+### 2.5 Approve
+
+Once verified and reviewed:
+```
+research_exhibit(action="approve", id="exh_001")
+```
+
+---
+
+## Step 3: Paper Structure
+
+### 3.1 Register paper
+
+```
+research_paper(action="create",
+  title="[paper title]",
+  venue="[target venue]",
+  source_dir="paper",
+  sections=[
+    {name: "abstract"},
+    {name: "introduction"},
+    {name: "related_work"},
+    {name: "method"},
+    {name: "experiments"},
+    {name: "results"},
+    {name: "discussion"},
+    {name: "conclusion"},
+    {name: "supplementary"}
+  ])
+```
+
+### 3.2 Bind claims and exhibits
+
+```
+research_paper(action="bind",
+  id="paper_001",
+  claims=["claim_001", "claim_002", "claim_003"],
+  exhibits=["exh_001", "exh_002", "exh_003", "exh_004"])
+```
+
+### 3.3 Advance to drafting
+
+```
+research_paper(action="advance", id="paper_001", target_status="drafting")
+```
+
+---
+
+## Step 4: Section-by-Section Writing
+
+**Load `references/writing-guide.md` for narrative strategies and section standards.**
+**Load `references/prose-quality.md` for paragraph-level quality control.**
+
+### Writing approach
+
+- Use `scribe` subagent for initial drafts of each section (scribe returns text; main agent writes to `paper/` using the `write` tool)
+- Provide scribe with: claim objects, exhibit descriptions, positioning matrix, method design, **broader insights from compose (claim-build)**
+- After each section draft, review with `editor` subagent (editor returns text; main agent records via `research_paper(action="review")`)
+
+### Section order (recommended)
+
+Write in this order for maximum coherence:
+
+1. **Method** — write first because it anchors the technical content
+2. **Results** — write second because it directly renders the claims
+3. **Introduction** — write third because now you know what the paper delivers
+4. **Related Work** — load `lit-knowledge` skill for wiki data
+5. **Discussion** — write honestly about limitations, broader perspective, and future work
+6. **Abstract** — write last because it must accurately summarize everything
+7. **Conclusion** — brief, forward-looking, no overclaim
+
+### For each section:
+
+```
+task(subagent_type="scribe"):
+  "Draft the [section name] section for a paper titled '[title]' targeting [venue].
+
+   Key content:
+   [section-specific material — claims, method design, experiment results, etc.]
+
+   Constraints:
+   [from writing-guide reference — tone, length, structure requirements]
+   Return the drafted text. The main agent writes it to the correct location."
+```
+
+### Special instructions for Introduction:
+
+When drafting the Introduction, provide scribe with the broader significance statement from the contribution positioning (novelty-ground) AND the broader insights from the compose (claim-build) phase. Include this directive:
+
+> "After the contribution list and main result preview, include a paragraph that connects this work to the bigger picture. Draw on the broader significance and insights provided. Ask: if this method works, what changes in how people approach [broader problem domain]? Be specific — name the community, the assumption being challenged, the capability being unlocked. Do NOT use generic phrases like 'opens new research directions' — state the specific direction."
+
+### Special instructions for Discussion:
+
+When drafting the Discussion, include this directive:
+
+> "Include a 'Broader Perspective' paragraph before limitations. This paragraph positions the work within the trajectory of the field. Use the validated insights from the compose (claim-build) phase. What does this result suggest about [the fundamental question underlying the research]? What established assumption does it challenge or confirm? What new questions does it open — not implementation tasks, but genuine research questions? Write this for a reader who works in an adjacent area and wants to know why your finding matters to them."
+
+After draft:
+```
+task(subagent_type="editor"):
+  "Review this draft [section name] section:
+   [paste draft]
+
+   Check: clarity, logic flow, claim-evidence alignment, honest scope,
+    venue-appropriate tone and length.
+    Return your editorial feedback as structured text with specific location references."
+
+Record paper-level review:
+```
+research_paper(action="review", id="paper_001",
+  reviewer="editor", focus="[section] narrative quality", ...)
+```
+
+---
+
+## Step 5: Prose Quality Audit + Narrative Coherence
+
+**Load `references/prose-quality.md` for the full 5-pass audit protocol.**
+
+### 5.1 Run the 5-pass prose quality audit
+
+For each section, apply (in order):
+1. **Clutter extraction** — remove filler phrases, redundancies, AI-isms
+2. **Active voice check** — convert passive, resurrect smothered verbs
+3. **Sentence architecture** — split >40 word sentences, fix subject-verb distance
+4. **Keyword consistency** — verify technical terms are used identically everywhere (the Banana Rule)
+5. **Numerical integrity** — verify numbers in text match tables/figures
+
+Use `editor` agent for passes 1-4, `auditor` agent for pass 5.
+
+### 5.2 Reverse outline test
+
+Extract the first sentence of every paragraph and read them in sequence. They should form a coherent story: problem → gap → method → evidence → conclusion. Fix any paragraphs whose topic sentence doesn't advance the narrative.
+
+### 5.3 Full-paper coherence check
+
+After all sections are drafted and quality-audited, do a full-paper coherence check:
+
+```
+task(subagent_type="editor"):
+  "Review the complete paper draft for narrative coherence:
+
+   [paste full paper or provide file path]
+
+   Check:
+   1. Does the introduction promise exactly what the paper delivers?
+   2. Does each claim in the results trace to the method section?
+   3. Is related work fair and complete?
+   4. Are limitations honest?
+   5. Is the abstract accurate?
+   6. Are cross-references consistent (figures, tables, equations, sections)?
+   7. Is the writing style consistent throughout?
+   Return your editorial feedback as structured text with specific location references."
+```
+
+Record:
+```
+research_paper(action="review", id="paper_001",
+  reviewer="editor", focus="full paper coherence", ...)
+```
+
+---
+
+## Step 6: Supplementary Material
+
+### 6.1 Structure
+
+Create the supplementary with:
+- Extended result tables (all metrics, all datasets, all seeds)
+- Additional ablation experiments
+- Detailed hyperparameter tables
+- Architecture diagrams
+- Algorithm pseudocode (if not in main text)
+- Additional visualizations
+- Failure case examples
+- Dataset details and preprocessing steps
+
+### 6.2 Register supplementary exhibits
+
+Each supplementary item should be a registered exhibit:
+```
+research_exhibit(action="create",
+  kind="supplementary_table",
+  title="Full ablation results across all datasets",
+  ...)
+```
+
+### 6.3 Cross-reference
+
+Ensure main text references supplementary where appropriate:
+- "See Appendix A for full results across all datasets"
+- "Supplementary Figure S1 shows the training curves"
+
+---
+
+## Step 7: LaTeX / Formatting
+
+**Load `references/latex-conventions.md` for venue-specific formatting.**
+
+- Compile the paper to verify no LaTeX errors
+- Check page count against venue limits
+- Verify figure/table placement
+- Check bibliography formatting
+- Verify supplementary compiles separately if required
+
+```
+bash: cd paper && latexmk -pdf main.tex 2>&1 | tail -20
+```
+
+---
+
+### Claim Gate (v2.1)
+
+Before paper-ready:
+1. Classify each claim: strong (RQG-backed) / moderate (some evidence) / weak (exploratory)
+2. Map claims to paper sections
+3. Verify every claim has evidence links
+4. Add caveats for moderate/weak claims
+5. User confirms paper ambition
+
+---
+
+## Step 8: Advance to Ready
+
+### 8.1 Submission Readiness Checkpoint
+
+**⏸ CHECKPOINT — do not proceed without user input.**
+
+**Checkpoint kind: `submission_readiness`**
+
+Before marking the paper ready or advancing to submission, the user must confirm submission readiness.
+
+Present:
+- Section completion status
+- Exhibit approval status
+- Claim-exhibit binding coverage
+- Page count and venue limit
+- Claim strength classification (strong/moderate/weak per claim)
+- RQG-backed evidence summary
+- Known remaining issues
+- Overclaim check status
+
+**Options for user**:
+1. **Mark ready for submission** — paper is complete and accurate
+2. **Request revisions** — specific sections or claims need work
+3. **Add more experiments** — evidence gap identified during writing
+4. **Reduce claim strength** — downgrade strong claims to moderate/weak
+5. **Park for later** — not ready to submit now
+
+Record user decision rationale in journal.
+**In autonomous mode**: Agent may waive but MUST log waiver with reasoning to `phase_run.human_checkpoints`.
+
+When a human checkpoint is triggered, the system auto-generates a checkpoint brief. The brief provides full context for the human decision. If you need to regenerate or view it, use `research_checkpoint_brief(action="generate"|"read")`.
+
+### 8.2 Mark paper ready
+
+Once the user confirms:
+
+```
+research_paper(action="advance", id="paper_001", target_status="ready")
+```
+
+### 8.3 Record context refresh
+
+```
+research_state(action="brief",
+  context_refresh={
+    used_wiki_refs: [...],
+    phase_run: "paper-compose",
+    key_decisions: ["paper marked ready", "submission_readiness confirmed"],
+    checked_skill_rules: [
+      "Every paper-visible result references specific experiment/exhibit",
+      "Claims map to RQG-backed evidence",
+      "StorySpine drives intro arc",
+      "Overclaim check passes before paper-ready"
+    ],
+    drift_check: { status: "pass|warning|block", note: "..." }
+  })
+```
+
+### 8.4 Advance state
+
+```
+research_state(action="advance", target_phase="compose",  → then invoke paper-audit skill
+  summary="Paper draft complete, ready for pre-submission audit",
+  reason="All sections drafted, exhibits approved, claims bound, submission readiness confirmed",
+  refs_paper="paper_001",
+  refs_claims=[...],
+  refs_exhibits=[...])
+```
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after exhibit planning (Step 1), after each section draft, and at final checkpoint
+- **guided**: Pause at final checkpoint only
+- **autonomous**: Full workflow, pause only if exhibits fail verification
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| Writing exposes unsupported claim | Rollback to compose (claim-build): `research_state(action="redirect", target_phase="compose", reason="Writing revealed unsupported claim: ...")` → then invoke claim-build skill |
+| Exhibit data inconsistent | Re-verify with auditor. If experiment data is wrong, rollback to `experiment`. |
+| Page limit exceeded | Prioritize: move content to supplementary, compress tables, tighten prose. Do NOT remove claims — move supporting evidence to appendix. |
+| Section draft quality too low | Re-run scribe with more context. Use editor for specific feedback. Iterate. |
+| Missing baseline comparison | Rollback to `experiment` to add the missing baseline. |
+| User/editor gives feedback on existing draft | Route to `paper-revise` skill for targeted section-level revision: `skill(name="paper-revise")` |
+
+---
+
+## Rollback Entry Points
+
+### From audit (narrative/format issues)
+Re-enter at Step 4 (section writing) or Step 7 (formatting) depending on the issue.
+
+### From venue-cycle (reviewer demands rewrite)
+Re-enter at Step 4. The reviewer comments guide which sections need revision.

@@ -1,0 +1,423 @@
+# Project Archive — Freeze, Package, and Preserve the Complete Research Record
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **Archive output → `.research/archive/`** directory.
+2. **Use research tools to read data** — `research_experiment(list)`, `research_claim(trace)`, etc.
+
+---
+
+## Prerequisites
+
+- Submission is in terminal state (`accepted` / `rejected` / `closed`), OR the user explicitly requests archival
+- Paper exists (may be `frozen` or `archived`)
+
+## Output contract
+
+- All research objects are in terminal states
+- `.research/archive/` directory contains the complete archive package
+- Experiment index, claim-evidence map, and exhibit provenance table are generated
+- Reproducibility package is assembled
+- AGENTS.md is updated as the final handoff brief
+- Project state is set to `archive`
+
+---
+
+## DAG Template
+
+```mermaid
+graph LR
+    load[Load Context] --> freeze_entities[Freeze Entities]
+    freeze_entities --> generate_docs[Generate Documents]
+    generate_docs --> verify[Verify Completeness]
+    verify --> archive[Archive Package]
+```
+
+Nodes:
+- `load` — Load project state, submission status, and all research objects
+- `freeze_entities` — Archive paper, close submission, resolve all intermediate-state objects
+- `generate_docs` — Create experiment index, claim-evidence map, exhibit provenance, reproducibility package, timeline summary
+- `verify` — Confirm all objects are terminal, all archive documents are complete
+- `archive` — Package into `.research/archive/`, write final handoff brief, set phase to archive
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- Read current state via `research_state(action="overview")` before acting
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- When a human checkpoint is triggered, the system auto-generates a brief; use `research_checkpoint_brief(action="read")` to view it
+- Use research tools to read data — `research_experiment(list)`, `research_claim(trace)`, etc.
+- Verify all objects are in terminal states before generating archive documents
+
+### Forbidden
+- Do not archive without resolving intermediate-state objects (park, reject, stop, retract)
+- Do not modify archived objects after the archive is sealed
+- Do not skip the final handoff brief update to AGENTS.md
+
+### Checkpoints
+- all_entities_frozen
+- archive_complete
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="archive completeness")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## Step 1: Enter Archive Phase
+
+```
+research_state(action="advance", target_phase="archive",
+  summary="Archiving research project",
+  reason="[Submission accepted / Project concluded / User requested archive]")
+```
+
+---
+
+## Step 2: Freeze All Objects
+
+### 2.1 Paper
+
+```
+research_paper(action="archive", id="paper_001")
+```
+
+### 2.2 Submission
+
+If not already closed:
+```
+research_submission(action="close", id="sub_001", outcome="[accepted/rejected/closed]")
+```
+
+### 2.3 Verify all objects are in terminal states
+
+```
+research_idea(action="list")       // all should be: selected, parked, or rejected
+research_plan(action="list")       // all should be: active, superseded, or cancelled
+research_experiment(action="list") // all should be: completed, failed, invalidated, or stopped
+research_claim(action="list")      // all should be: final, retracted, or weak
+research_exhibit(action="list")    // all should be: approved, superseded, or dropped
+```
+
+Flag any objects still in intermediate states (e.g. `exploring` ideas, `draft` plans, `registered` experiments). Resolve them explicitly:
+- Unfinished ideas → `park` or `reject`
+- Unfinished plans → `cancel`
+- Unstarted experiments → `stop`
+- Unresolved claims → `retract` or `weaken`
+- Unfinished exhibits → `drop`
+
+---
+
+## Step 3: Generate Experiment Index
+
+Use the `write` tool to create `.research/archive/experiment-index.md`:
+
+```markdown
+# Experiment Index
+
+## Summary
+- Total experiments: N
+- Completed: N (successful)
+- Failed: N
+- Invalidated: N
+- Stopped: N
+
+## Experiment Table
+
+| ID | Title | Group | Status | Key Metrics | Artifacts |
+|----|-------|-------|--------|-------------|-----------|
+| exp_001 | Sanity check | sanity | completed | loss: 2.1 | [log] |
+| exp_002 | D3PM baseline | baselines | completed | PPL: 20.5±0.3 | [log, ckpt] |
+| ... | | | | | |
+
+## Failed Experiments
+| ID | Title | Failure Reason | Lesson Learned |
+|----|-------|----------------|----------------|
+| exp_004 | Large batch test | OOM at step 8000 | Batch size 256 exceeds 40GB GPU |
+| ... | | | |
+
+## Invalidated Experiments
+| ID | Title | Invalidation Reason |
+|----|-------|---------------------|
+| exp_006 | Method v1 | Data leakage in preprocessing |
+| ... | | |
+```
+
+Generate from:
+```
+research_experiment(action="list")
+research_experiment(action="compare", ids=[all completed IDs])
+```
+
+---
+
+## Step 4: Generate Claim-Evidence Map
+
+Use the `write` tool to create `.research/archive/claim-evidence-map.md`:
+
+```markdown
+# Claim-Evidence Map
+
+## Finalized Claims
+
+### Claim 1: [Title]
+- **Statement**: [precise statement]
+- **Status**: supported / qualified
+- **Caveats**: [list]
+- **Evidence chain**:
+  | Experiment | Role | Strength | Key Metric |
+  |-----------|------|----------|------------|
+  | exp_007 | main result | strong | PPL: 18.3 |
+  | exp_008 | seed replication | strong | PPL: 18.1 |
+  | exp_009 | seed replication | strong | PPL: 18.5 |
+- **Exhibits**: exh_001 (Table 1), exh_003 (Figure 2)
+
+### Claim 2: ...
+
+## Retracted Claims
+| Claim | Reason for Retraction |
+|-------|----------------------|
+| claim_005 | Evidence insufficient after ablation |
+
+## Claim Hierarchy
+Primary: claim_001 (main result)
+├── Supporting: claim_002 (ablation confirmation)
+├── Supporting: claim_003 (analysis insight)
+├── Supporting: claim_004 (robustness)
+└── Limitation: claim_006 (capacity bound)
+```
+
+Generate from:
+```
+research_claim(action="list")
+research_claim(action="trace", id="claim_XXX")  // for each claim
+```
+
+---
+
+## Step 5: Generate Exhibit Provenance Table
+
+Use the `write` tool to create `.research/archive/exhibit-provenance.md`:
+
+```markdown
+# Exhibit Provenance
+
+| ID | Title | Kind | Status | Source Experiments | Source Claims | Script | Output |
+|----|-------|------|--------|-------------------|---------------|--------|--------|
+| exh_001 | Main comparison table | table | approved | exp_007-009 | claim_001 | gen_main_table.py | paper/tables/main.tex |
+| exh_002 | Training curves | figure | approved | exp_007-009 | claim_001 | gen_curves.py | paper/figures/curves.pdf |
+| ... | | | | | | | |
+
+## Supplementary Exhibits
+| ID | Title | Kind | Source | Output |
+|----|-------|------|--------|--------|
+| exh_010 | Full ablation table | supplementary_table | exp_010-015 | supplementary/tab_s1.tex |
+| ... | | | | |
+```
+
+Generate from:
+```
+research_exhibit(action="list")
+```
+
+---
+
+## Step 6: Assemble Reproducibility Package
+
+Use the `write` tool to create `.research/archive/reproducibility.md`:
+
+```markdown
+# Reproducibility Package
+
+## Code
+- Repository: [URL or path]
+- Main branch commit: [hash from the active plan's experiments]
+- Experiment configs: [path to config directory]
+
+## Environment
+- Platform: [Inspire / local / ...]
+- GPU: [type and count]
+- Framework: [PyTorch X.Y, CUDA X.Y]
+- Image: [Docker image if applicable]
+
+## Per-Experiment Reproduction
+
+| Experiment | Commit | Config | Command | Seeds | Expected Result |
+|-----------|--------|--------|---------|-------|-----------------|
+| exp_007 | abc123 | configs/main.yaml | python train.py --config ... --seed 42 | 42,123,456 | PPL ~18.3 |
+| ... | | | | | |
+
+## Data
+| Dataset | Source | Version | Preprocessing |
+|---------|--------|---------|---------------|
+| WikiText-103 | [URL] | [version] | [steps] |
+| ... | | | |
+
+## Known Reproduction Caveats
+- [Any non-determinism sources]
+- [Hardware-specific behavior]
+- [Approximate reproduction ranges]
+```
+
+Generate from experiment records:
+```
+research_experiment(action="list")
+```
+
+---
+
+## Step 7: Generate Research Timeline Summary
+
+Use the `write` tool to create `.research/archive/timeline-summary.md`:
+
+```markdown
+# Research Timeline
+
+## Project Duration
+Start: [date] → End: [date] ([N] months)
+
+## Phase Timeline
+| Phase | Entered | Duration | Key Events |
+|-------|---------|----------|------------|
+| explore | 2026-04-20 | 2 weeks | 14 ideas generated, 3 survived |
+| ground | 2026-05-04 | 1 week | Novelty confirmed after 3 review rounds |
+| design | 2026-05-11 | 2 weeks | Method approved after 4 refinement rounds |
+| experiment | 2026-05-25 | 6 weeks | 18 experiments, 12 completed, 3 failed |
+| compose (claim-build) | 2026-07-06 | 1 week | 7 claims proposed, 5 final |
+| compose | 2026-07-13 | 3 weeks | Paper drafted, 22 exhibits created |
+| compose (audit) | 2026-08-03 | 1 week | All 7 dimensions passed |
+| compose (venue-cycle) | 2026-08-10 | 8 weeks | 1 round of review, revision, resubmission |
+| archive | 2026-10-05 | — | Accepted at [venue] |
+
+## Key Decisions
+[extracted from timeline decision events]
+
+## Key Insights
+[extracted from timeline insight events]
+
+## Rollback History
+| From | To | Reason | Date |
+|------|----|--------|------|
+| compose → experiment | Evidence insufficient for efficiency claim | 2026-07-08 |
+```
+
+Generate from:
+```
+research_timeline(action="read")
+research_state(action="read")
+```
+
+---
+
+## Step 8: Generate Final Handoff Brief
+
+```
+research_state(action="brief")
+```
+
+This updates `AGENTS.md` at the project root with the complete project narrative — from explore to archive.
+
+---
+
+## Step 9: Package Everything
+
+Ensure `.research/archive/` contains:
+```
+archive/
+├── experiment-index.md
+├── claim-evidence-map.md
+├── exhibit-provenance.md
+├── reproducibility.md
+├── timeline-summary.md
+└── README.md              ← Index pointing to each document
+```
+
+Use the `write` tool to create `.research/archive/README.md`:
+```markdown
+# Research Archive: [Project Title]
+
+Archived: [date]
+Venue: [venue]
+Outcome: [accepted / rejected / closed]
+
+## Contents
+- [Experiment Index](experiment-index.md) — All N experiments with status and metrics
+- [Claim-Evidence Map](claim-evidence-map.md) — Every claim with full evidence chain
+- [Exhibit Provenance](exhibit-provenance.md) — Every figure/table with source tracing
+- [Reproducibility Package](reproducibility.md) — Everything needed to reproduce
+- [Timeline Summary](timeline-summary.md) — Complete research history
+
+## Quick Stats
+- Ideas explored: N (M selected, K rejected, J parked)
+- Plans created: N (M approved)
+- Experiments run: N (M completed, K failed, J invalidated)
+- Claims final: N (M supported, K qualified)
+- Exhibits produced: N (M approved for paper, K supplementary)
+- Review rounds: N
+- Total research duration: N months
+```
+
+---
+
+## Step 10: Final Checkpoint
+
+**⏸ CHECKPOINT**: Present the archive summary to the user.
+
+- Project statistics
+- Archive package contents
+- Any unresolved items (objects still in intermediate states)
+- Recommendation: close project or keep for future reference
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after object freeze (Step 2), after each generated document, and at final checkpoint
+- **guided**: Pause at final checkpoint only
+- **autonomous**: Full workflow, present final summary
+
+---
+
+## Special Cases
+
+### Partial Archive (project paused, not concluded)
+
+If the user wants to archive a project that hasn't reached submission:
+- Freeze whatever exists at current quality
+- Generate partial documents (e.g. experiment index without claim map if claims don't exist yet)
+- State clearly in README.md that this is a partial archive
+- Record the reason for pausing
+- Set `research_state(action="advance", target_phase="archive", reason="Project paused: [reason]")`
+
+### Re-Opening an Archived Project
+
+If the user wants to resume work on an archived project:
+- Read the archive documents to recover context
+- Use `research_state(action="redirect")` to move back to the appropriate phase
+- The archive documents remain as historical reference
+- New work creates new objects (do not modify archived ones)
+
+### Multiple Submissions from One Project
+
+If the same research leads to multiple papers (e.g. main paper + workshop paper + journal extension):
+- Each paper has its own `paper_XXX` and `sub_XXX` objects
+- They share the same experiments, claims, and wiki
+- Archive each submission cycle separately
+- The project-level archive covers all submissions

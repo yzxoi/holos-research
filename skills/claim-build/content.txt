@@ -1,0 +1,579 @@
+# Claim Build — From Experiment Evidence to Structured Research Claims
+
+> **User request:** $ARGUMENTS
+
+## ⚠️ CRITICAL RULES
+
+1. **ALL files under `.research/`** — never write to project root.
+2. **Claims via `research_claim(action="create")`** — writes to `.research/claims/`.
+3. **Reviews via `research_claim(action="review")`** — not free-text files.
+4. **Subagents return text, not files.**
+5. **Follow AGENTS.md at project root** — code discipline, directory structure, tool usage, naming conventions.
+6. **End session with `research_state(action="brief")`** to update AGENTS.md dynamic state.
+7. **Git commit research artifacts** after modifying .research/ files.
+8. **Evidence authenticity gate**: `research_claim(action="support")` automatically blocks promotion if any evidence experiment is not evidence-grade (prototype or pilot). Only full-benchmark, official-evaluator experiments can support claims.
+
+---
+
+## Skill Checklist (v2.2)
+
+### Must
+- [ ] Each claim has explicit evidence links
+- Record decision rationale in journal via `research_journal(action="append", kind="decision_rationale", note="...")`
+- [ ] Claim strength matches RQG status (passed→strong, partial→moderate, failed→weak/retracted)
+- [ ] Negative results are reflected in claim caveats
+- [ ] Claims advance the StorySpine
+
+### Forbidden
+- [ ] Do not promote claims without evidence
+- [ ] Do not ignore RQG failures when building claims
+- [ ] Do not overclaim based on partial results
+
+### Checkpoints
+- [ ] paper_ambition: User confirms final claim set and strength before compose
+
+---
+
+## Context Refresh (Mandatory at Entry)
+
+<!-- NOTE: This context refresh pattern (load state → read phase run → check wiki → review journal → resume/pivot) is shared across all skills. -->
+
+When re-entering this skill (new session or after context compaction):
+
+1. **Load state** — `research_state(action="overview")` → get current phase, focus refs, active run
+2. **Read phase run** — `research_state(action="read")` → inner loop state, attempts, stagnation
+3. **Check wiki** — `research_wiki(action="query", query="claim status and evidence")` → relevant knowledge
+4. **Review journal** — `research_journal(action="read", last=10)` → recent decisions and rationale
+5. **Resume or pivot** — If `inner_loop.state === "evaluate"`, review progress metric and decide; if `"decide"`, check stagnation and choose iterate/pivot/promote
+
+After refresh, write context recovery to the phase run:
+```
+research_state(action="brief", context_refresh={trigger: "session_resume", loaded: ["state","wiki","journal"], checked_skill_rules: true})
+```
+
+---
+
+## DAG Template
+
+Create this DAG at skill entry. The methodologist and critic can run in parallel during assessment.
+
+```
+dagwrite({ nodes: [
+  { id: "load",       content: "Load plan, experiments, anchor",                     status: "pending", deps: [] },
+  { id: "landscape",  content: "Build result landscape and cross-experiment table",  status: "pending", deps: ["load"] },
+  { id: "propose",    content: "Draft and register candidate claims",                status: "pending", deps: ["landscape"] },
+  { id: "assess",     content: "Evidence strength assessment via methodologist",     status: "pending", deps: ["propose"], assign: "methodologist" },
+  { id: "overclaim",  content: "Overclaim detection via critic",                     status: "pending", deps: ["propose"], assign: "critic" },
+  { id: "redline",    content: "Red-line gate: verify all evidence experiments pass R1-R7", status: "pending", deps: ["assess", "overclaim"], assign: "auditor" },
+  { id: "insight",    content: "Insight extraction — what did we learn?",            status: "pending", deps: ["redline"], assign: "methodologist" },
+  { id: "coherence",  content: "Inter-claim consistency and contribution alignment", status: "pending", deps: ["insight"] },
+  { id: "audit",      content: "Evidence chain audit via auditor",                   status: "pending", deps: ["coherence"], assign: "auditor" },
+  { id: "finalize",   content: "Present to user, finalize claim set",               status: "pending", deps: ["audit"] }
+]})
+```
+
+`assess` and `overclaim` run in parallel — strength assessment and overclaim detection are independent checks on the same claim set.
+
+---
+
+## Prerequisites
+
+- `research_state` shows `phase: compose` (claim-build is a compose-internal workflow)
+- Sufficient experiments completed (the sufficient set from the plan is satisfied, or at minimum the kill set passed)
+- Experiment integrity has been checked (auditor review in experiment-cycle)
+
+## Output contract
+
+By the end of this skill:
+
+- Every assertion that will appear in the paper exists as a `claim_XXX` object
+- Each claim has a status: `supported` / `qualified` / `weak` / `retracted`
+- Each claim has an explicit evidence chain (experiment IDs + strength ratings)
+- Each qualified claim has explicit caveats
+- Core claims have been marked `final`
+- A claim-evidence matrix is available via `research_claim(trace)`
+- The claim set is ready for paper-compose
+
+---
+
+## Step 0: Load Context
+
+### 0.1 Read state and plan
+
+```
+research_state(action="read")
+research_plan(action="list")
+```
+
+Identify the active plan. Read its `.md` — especially the claim-driven validation sketch (what claims were planned and what evidence was expected).
+
+### 0.2 Inventory all experiments
+
+```
+research_experiment(action="list")
+```
+
+Categorize by status and group:
+
+| Group | Completed | Failed | Invalidated | Stopped |
+|-------|-----------|--------|-------------|---------|
+| sanity | ... | ... | ... | ... |
+| baselines | ... | ... | ... | ... |
+| main | ... | ... | ... | ... |
+| ablations | ... | ... | ... | ... |
+| robustness | ... | ... | ... | ... |
+| stress | ... | ... | ... | ... |
+
+### 0.3 Read the anchor and contribution statement
+
+The `anchor` from `research_state(action="read")` is the user's research direction. Read the contribution statement from the idea's `.md` and plan's `.md`. Every claim must support the stated contribution within the scope of the anchor.
+
+---
+
+## Step 1: Result Landscape
+
+Before proposing any claims, build a complete picture of what the evidence shows.
+
+### 1.1 Cross-experiment comparison
+
+```
+research_experiment(action="compare", ids=[all completed experiment IDs])
+```
+
+### 1.2 Organize results by claim target
+
+Map each experiment result to what it could support:
+
+| Planned Claim (from plan) | Supporting Experiments | Key Metrics | Direction |
+|---------------------------|----------------------|-------------|-----------|
+| "Method improves over baselines" | exp_007, exp_008, exp_009 | PPL: 18.3 vs 20.5 | ✅ Positive |
+| "Factorization module is essential" | exp_010 (ablation) | PPL: 18.3 vs 19.1 | ✅ But small |
+| "Method is efficient" | exp_011 | FLOPs: 1.2x vs 1.0x | ❌ Worse |
+
+### 1.3 Identify surprising results
+
+Results that were NOT predicted by the plan are often the most interesting:
+- Unexpected failures reveal assumptions
+- Unexpected successes suggest new claims
+- Results that contradict prior literature deserve special attention
+
+Record surprises:
+```
+research_timeline(action="append_free_event", event_type="insight",
+  summary="Unexpected: method outperforms on low-resource but underperforms on high-resource. May indicate a capacity limitation.",
+  event_refs=["exp_007", "exp_012"])
+```
+
+---
+
+## Step 2: Propose Candidate Claims
+
+### 2.1 Claim types
+
+For Nature-level research, claims fall into distinct categories with different evidence requirements:
+
+| Claim Type | Evidence Required | Example |
+|-----------|-------------------|---------|
+| **Main result** | Multi-seed, multi-dataset, strong baselines | "Our method reduces PPL by 10.7% over SOTA" |
+| **Ablation finding** | Controlled removal/replacement, multi-seed | "The factorization module contributes 80% of the gain" |
+| **Analysis insight** | Targeted diagnostic experiment | "The improvement comes from better gradient flow in the residual branch" |
+| **Negative result** | Clear experimental evidence | "Scaling to sequences > 4096 degrades performance, suggesting a capacity limit" |
+| **Robustness claim** | Varied conditions | "The improvement is consistent across 3 datasets and 2 model sizes" |
+| **Efficiency claim** | Wall-clock, FLOPs, memory measurements | "Training requires only 1.2x the compute of the baseline" |
+
+### 2.2 Draft each claim
+
+For each viable claim, draft a precise statement:
+
+**Rules for claim statements:**
+- Must be falsifiable: there exists an experiment that could disprove it
+- Must be specific: exact numbers, exact conditions, exact comparisons
+- Must be bounded: under what conditions does this hold?
+- Must cite evidence: which experiments support it?
+
+**Bad**: "Our method significantly outperforms existing approaches"
+**Good**: "On WikiText-103, our method achieves 18.3 ± 0.2 PPL (3 seeds) vs 20.5 ± 0.3 for the strongest baseline (D3PM), a 10.7% relative improvement (p = 0.008, Cohen's d = 1.4)"
+
+### 2.3 Register claims
+
+For each candidate claim:
+
+```
+research_claim(action="create",
+  title="Main result: PPL improvement over SOTA",
+  statement="On WikiText-103, our method achieves 18.3 ± 0.2 PPL vs 20.5 ± 0.3 for D3PM, a 10.7% relative improvement (p = 0.008, d = 1.4)",
+  evidence=[
+    {ref: "exp_007", role: "main result", strength: "strong"},
+    {ref: "exp_008", role: "seed replication", strength: "strong"},
+    {ref: "exp_009", role: "seed replication", strength: "strong"}
+  ],
+  caveats=["Tested on WikiText-103 only; C4 results pending"],
+  paper_section="results")
+```
+
+Pass the full analysis via content on create: `research_claim(action="create", title="...", evidence=[...], content="## Claim Statement\n\n[precise statement]\n\n## Evidence Summary\n\n[which experiments, what metrics]\n\n## Caveats\n\n[conditions and limitations]")`. For later updates, use `notes` param to append new evidence or analysis.
+
+---
+
+## Step 3: Strength Assessment
+
+For each registered claim, assess its strength rigorously.
+
+### 3.1 Evidence sufficiency matrix
+
+Build for each claim:
+
+| Evidence Dimension | Status | Notes |
+|-------------------|--------|-------|
+| Statistical significance | ✅ p < 0.05 | Paired t-test, 3 seeds |
+| Effect size | ✅ d = 1.4 | Large effect |
+| Multi-seed | ✅ 3 seeds | Consistent |
+| Multi-dataset | ⚠️ 1 dataset | C4 pending |
+| Strong baselines | ✅ | D3PM is current SOTA |
+| Ablation isolation | ✅ | exp_010 confirms |
+| Reproducibility | ✅ | Code + hyperparameters logged |
+
+### 3.2 Use methodologist for assessment
+
+```
+task(subagent_type="methodologist"):
+  "Assess the evidence strength for these claims:
+
+   [paste all candidate claims with their evidence]
+
+   For each claim, evaluate:
+   1. Is the statistical evidence sufficient? (seeds, effect size, significance)
+   2. Is the comparison fair? (baselines, evaluation protocol)
+   3. Are there confounding variables not controlled for?
+   4. What alternative explanations exist for the observed result?
+   5. What additional evidence would strengthen or weaken this claim?
+
+   Rate each claim: STRONG / MODERATE / WEAK with justification.
+   Return your analysis as structured text."
+```
+
+### 3.3 Set claim status
+
+Before promoting any claim to `supported`, verify the red-line gate:
+
+**Red-line Gate (Gate 2 — Claim promotion):**
+The `research_claim(action="support")` tool automatically checks that ALL evidence experiments have passed their declared red-lines. If any evidence experiment has red-line violations, the tool rejects the promotion and returns the specific violations. You do NOT need to manually check — the tool enforces this.
+
+**Authenticity Gate:**
+The `research_claim(action="support")` tool also checks that ALL evidence experiments are evidence-grade (full benchmark, official evaluator, complete scale). Prototypes and pilots are automatically rejected as claim evidence. Re-run at evidence scale or mark the claim as qualified with caveats.
+
+Based on the evidence assessment:
+
+- **All dimensions green (✅) + red-lines pass**: `research_claim(action="update", id="claim_XXX", status="supported")`
+- **Mostly green, some with caveats (⚠️)**: `research_claim(action="qualify", id="claim_XXX", caveats=["Only tested on WikiText-103", "Effect size smaller on longer sequences"])`
+- **Key dimensions missing (❌)**: `research_claim(action="update", id="claim_XXX", status="weak")` — needs more evidence or narrower scope
+- **Contradicted by evidence**: `research_claim(action="retract", id="claim_XXX")`
+- **Red-lines violated on evidence experiments**: Fix the violations first, or mark claim as `qualified` with explicit caveats about the violation
+
+---
+
+## Step 4: Overclaim Detection
+
+### 4.1 Use critic for adversarial evaluation
+
+Invoke the `peer-review` skill to challenge every claim:
+
+```
+task(subagent_type="critic"):
+  "Review these research claims for overclaiming:
+
+   [paste all claims with evidence chains]
+
+   For each claim, check:
+   1. Does the statement overstate what the evidence shows?
+   2. Are hedging words missing? (e.g. 'consistently' when only 1 dataset tested)
+   3. Is the comparison scope honest? (e.g. 'outperforms SOTA' when only outperforming on a subset)
+   4. Are there implicit assumptions not stated?
+   5. Could a hostile reviewer point to evidence that contradicts this claim?
+   6. Are caveats sufficient and honest?
+
+   For each claim: HONEST / BORDERLINE / OVERCLAIMED + specific fix.
+   Return your review as structured text. The main agent records it via the appropriate research tool."
+```
+
+Record the review:
+```
+research_claim(action="review", id="claim_XXX",
+  reviewer="critic",
+  focus="overclaim detection",
+  verdict="pass|revise|rethink",
+  summary="...",
+  action_items=[...],
+  review_body="...")
+```
+
+### 4.2 Handle overclaimed findings
+
+- **OVERCLAIMED → HONEST**: Narrow the statement, add caveats, reduce scope
+- **OVERCLAIMED → RETRACT**: If narrowing still leaves an honest claim too weak, retract it
+- **BORDERLINE**: Add the specific caveat the critic identified
+
+After revision, update the claim:
+```
+research_claim(action="update", id="claim_XXX",
+  statement="[revised, more honest statement]",
+  caveats=["[added caveat]"])
+```
+
+---
+
+## Step 5: Insight Extraction — From Technical Results to Field-Level Understanding
+
+Before checking claim coherence, step back from the data and ask: **"What did we learn?"**
+
+The previous steps ensured each claim is supported by evidence. This step asks a different question: do the claims *collectively* tell us something about the problem domain that was not known before? This is the difference between a paper that reports numbers and a paper that advances understanding.
+
+### 5.1 Use methodologist for insight synthesis
+
+```
+task(subagent_type="methodologist"):
+  "Based on these experimental findings and claims, extract the broader insight.
+
+   Claims and evidence:
+   [paste all supported/qualified claims with their evidence chains]
+
+   Contribution statement:
+   [paste from idea .md]
+
+   Answer these questions:
+   1. What do these results tell us about [the broader problem domain] that was not known before?
+   2. Do the results challenge an existing assumption in the field? Which one, specifically?
+   3. Is there a general principle emerging from these specific findings? Can it be stated in one sentence?
+   4. If a colleague in an adjacent field asked 'what did you learn?', what would you say — in terms they would care about?
+   5. What new research questions do these findings open?
+
+   Be concrete. 'We learned that our method works' is not an insight.
+   'We learned that factorized generation is bottlenecked by token-level independence, not by the noise schedule — which means the entire line of work on improved schedules is attacking the wrong target' IS an insight.
+
+   Return your analysis as structured text."
+```
+
+### 5.2 Validate and record insights
+
+For each extracted insight:
+
+- **Is it supported by the evidence?** An insight that goes beyond what the data shows is speculation, not a finding. Check that every insight traces to specific experiments.
+- **Is it genuinely new?** Check against the wiki — has this insight already been stated in prior work?
+- **Is it actionable?** Does it change how someone would approach a related problem?
+
+Record validated insights in the idea's `.md` under a new section "## Broader Insights":
+
+```
+### Insight 1: [one-sentence statement]
+- Supported by: [experiment IDs]
+- Challenges assumption: [what the field previously believed]
+- Implication: [what should change based on this]
+```
+
+Also record in timeline:
+```
+research_timeline(action="append_free_event", event_type="insight",
+  summary="Broader insight: [one-sentence insight]",
+  event_refs=["claim_001", "claim_002", ...])
+```
+
+### 5.3 Feed insights into compose phase
+
+These insights become source material for:
+- The Introduction's "broader impact" paragraph
+- The Discussion section's "implications" paragraph
+- The Abstract's final sentence (implication/takeaway)
+
+Do not write these sections now — that is the compose phase's job. But the insights must exist as structured input for the scribe.
+
+---
+
+## Step 6: Claim Coherence Check
+
+### 6.1 Inter-claim consistency
+
+Check that claims do not contradict each other:
+- If claim A says "method is efficient" but claim B says "method requires 2x compute", these conflict
+- If claim A depends on claim B's evidence, and B is retracted, A may lose support
+
+### 6.2 Contribution alignment
+
+Check that the claim set supports the stated contribution:
+- Does the main contribution claim exist and is it supported?
+- Do the supporting claims reinforce the contribution or dilute it?
+- Is there contribution sprawl? (too many orthogonal claims → unfocused paper)
+
+### 6.3 Claim hierarchy
+
+Organize claims into a hierarchy:
+
+```
+Primary claim (the paper's main assertion)
+├── Supporting claim 1 (ablation evidence)
+├── Supporting claim 2 (analysis insight)
+├── Supporting claim 3 (robustness evidence)
+└── Negative finding (honest limitation)
+```
+
+If there are more than 5-6 total claims, the paper may be trying to say too much. Consider:
+- Merging related claims
+- Demoting weak claims to "observations" (not formal claims)
+- Saving orthogonal claims for a follow-up paper
+
+---
+
+## Step 7: Evidence Chain Audit
+
+### 7.1 Trace every claim
+
+For each supported or qualified claim:
+
+```
+research_claim(action="trace", id="claim_XXX")
+```
+
+This returns the full evidence chain: claim → evidence refs → experiment metrics → artifacts.
+
+### 7.2 Verify the chain is complete
+
+For each claim, confirm:
+- Every evidence ref exists and is a completed (not failed/invalidated) experiment
+- The metrics cited in the claim statement match the metrics in the experiment record
+- The strength rating is justified by the statistical evidence
+- All caveats are present in the claim object
+
+### 7.3 Use auditor for independent verification
+
+```
+task(subagent_type="auditor"):
+  "Verify the evidence chain for these claims:
+
+   [paste each claim with its trace output]
+
+   For each claim:
+   1. Do the numbers in the claim statement match the experiment records?
+   2. Are all cited experiments in 'completed' status (not failed/invalidated)?
+   3. Is the statistical test appropriate for the number of seeds?
+   4. Are there any experiments that CONTRADICT this claim that are not acknowledged?
+
+   Report: VERIFIED / INCONSISTENT / UNVERIFIABLE per claim.
+    Return your audit report as structured text. The main agent records findings via the appropriate research tool."
+```
+
+Record the audit:
+```
+research_claim(action="review", id="claim_XXX",
+  reviewer="auditor",
+  focus="evidence chain verification",
+  verdict="pass|revise|rethink",
+  summary="...",
+  review_body="...")
+```
+
+---
+
+## Step 8: Finalize Claim Set
+
+### 8.1 Final gate check
+
+Before finalizing, confirm:
+- [ ] Every claim is `supported` or `qualified` (no `weak` or `candidate` claims in the final set)
+- [ ] Every qualified claim has explicit caveats
+- [ ] No two claims contradict each other
+- [ ] The primary claim directly supports the stated contribution
+- [ ] The total claim count is ≤ `config.claim.max_claims` (default: 6, focused paper)
+- [ ] At least one negative finding or limitation is acknowledged (if `config.claim.require_negative` is true)
+
+### 8.2 Present to user
+
+**⏸ CHECKPOINT — do not finalize without user approval.**
+
+When a human checkpoint is triggered, the system auto-generates a checkpoint brief. The brief provides full context for the human decision. If you need to regenerate or view it, use `research_checkpoint_brief(action="generate"|"read")`.
+
+Present:
+
+**Claim-Evidence Matrix:**
+
+| # | Claim | Status | Evidence | Strength | Caveats |
+|---|-------|--------|----------|----------|---------|
+| 1 | [main result] | supported | exp_007, exp_008, exp_009 | strong | — |
+| 2 | [ablation finding] | qualified | exp_010 | moderate | only one ablation variant |
+| ... | | | | | |
+
+**Primary claim**: [the paper's main assertion]
+**Contribution alignment**: [does the claim set support the stated contribution?]
+**Acknowledged limitations**: [what we can't claim and why]
+**Remaining risks**: [what a hostile reviewer might still challenge]
+
+### 8.3 Finalize
+
+Once the user approves:
+
+```
+research_claim(action="update", id="claim_001", status="final")
+research_claim(action="update", id="claim_002", status="final")
+...
+```
+
+Only `supported` or `qualified` claims can be marked final. Attempting to mark a `weak` claim as final should trigger a discussion about whether to strengthen it (more experiments) or drop it.
+
+### 8.4 Advance state
+
+```
+research_state(action="advance", target_phase="compose",
+  summary="Composing paper with N final claims",
+  reason="Claim set stable: N supported, M qualified, K retracted. Evidence chains verified.",
+  refs_claims=["claim_001", "claim_002", ...],
+  refs_plan="plan_002",
+  refs_idea="idea_014")
+```
+
+Record milestone:
+```
+research_timeline(action="append_free_event", event_type="milestone",
+  summary="Claim set marked final: N claims (M primary + K supporting). Ready for paper composition.",  event_refs=["claim_001", "claim_002", ...])
+```
+
+---
+
+## Participation Mode Behavior
+
+- **collaborative**: Pause after result landscape (Step 1), after initial claim registration (Step 2), after critic review (Step 4), after insight extraction (Step 5), and at final checkpoint (Step 8)
+- **guided**: Pause at final checkpoint (Step 8) only
+- **autonomous**: Run full workflow. Pause only if all claims are `weak` or `retracted` (nothing to write about)
+
+---
+
+## Error Recovery
+
+| Situation | Action |
+|-----------|--------|
+| All candidate claims are weak | Evidence package insufficient. Rollback to experiment: `research_state(action="redirect", target_phase="experiment", reason="No claims achievable from current evidence")` |
+| Main contribution claim is unsupported | Either narrow the contribution statement (rollback to ground) or add experiments (rollback to experiment) |
+| Critic finds everything overclaimed | Systematically narrow: reduce scope, add caveats, reduce strength. If nothing survives → reassess the contribution |
+| Evidence chain has inconsistencies | Use auditor to identify the exact discrepancy. Fix the source (experiment record or claim statement) |
+| Too many claims (> `config.claim.max_claims`) | Merge related claims, demote weak ones to observations, save orthogonal claims for follow-up |
+| Claims contradict each other | Resolve the contradiction: one claim is wrong, or both need narrower scope |
+
+---
+
+## Rollback Entry Points
+
+### From compose (writing exposes unsupported claims)
+
+1. Read which claims were problematic during writing
+2. Re-enter at Step 3 (strength assessment) with the new information
+3. May need to add caveats, narrow scope, or add evidence
+
+### From audit (integrity issues)
+
+1. Read audit findings
+2. If claim-evidence mismatch → re-enter at Step 7 (evidence chain audit)
+3. If overclaim → re-enter at Step 4 (overclaim detection)
+
+### From venue-cycle (reviewer demands narrower claims)
+
+1. Read reviewer comments
+2. Classify each demand
+3. Re-enter at Step 4 (overclaim) or Step 3 (strength) depending on the nature of the demand
+
