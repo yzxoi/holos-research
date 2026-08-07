@@ -28,7 +28,7 @@
         "algorithm": "ed25519",
         "signer": "483a6c48d867e72b6d48158918da77237e15b3d0e6d9f4f6ae8393cd198280ee"
       },
-      "integrity": "sha256-7dd50fef3983750bf82a54a8c0eef581065f2289b3560a5cbfff764eb16459e5",
+      "integrity": "sha256-46e04957fa75487ee7abe83820c210fa49f8c1abc00d37711d625f1f87752521",
       "manifestHash": "41e0a4c6f88b28da2023edf8b7d17692e0ca3c15b06369391e4b8c11d4aed68e",
       "permissionsHash": "db53809dfa296668f1f551df64296b1b4f74aee3a2027f230f00ed5ee96b4839",
       "runtimeMode": "process",
@@ -156,7 +156,7 @@
       "uiSurfaces": [
         "ui.workbenchPanel"
       ],
-      "publishedAt": "2026-08-07T16:23:17.094Z"
+      "publishedAt": "2026-08-07T17:28:47.039Z"
     }
   ],
   "yankedVersions": []
