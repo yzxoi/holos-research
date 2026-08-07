@@ -68,8 +68,17 @@ REG_DIR="$(mktemp -d)"
 trap 'rm -rf "${REG_DIR}"' EXIT
 git clone --depth 1 "https://github.com/${REGISTRY_REPO}.git" "${REG_DIR}"
 cp "${REGISTRY_ENTRY}" "${REG_DIR}/plugins/holos-research.json"
+# 官方 CI 有 registry drift check：新增 plugins/*.json 后必须重建 registry.json
+# 并一起提交，否则 PR 会被拒绝（CONTRIBUTING.md: bun run build-registry）。
+if (cd "${REG_DIR}" && bun run build-registry >/dev/null 2>&1); then
+  echo "    ✔ registry.json 已重建（含 holos-research）"
+else
+  echo "    ⚠ build-registry 失败，将尝试 bun install 后重试"
+  (cd "${REG_DIR}" && bun install >/dev/null 2>&1 && bun run build-registry >/dev/null 2>&1) \
+    || fail "registry.json 重建失败——PR 会被 CI drift check 拒绝"
+fi
 git -C "${REG_DIR}" checkout -b "${REGISTRY_BRANCH}"
-git -C "${REG_DIR}" add plugins/holos-research.json
+git -C "${REG_DIR}" add plugins/holos-research.json registry.json
 git -C "${REG_DIR}" commit -m "add holos-research 1.0.0 (API4)"
 
 # ── 5/6 推送注册表分支并开 PR（幂等）────────────────────────────────────────
