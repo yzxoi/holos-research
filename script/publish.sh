@@ -2,46 +2,88 @@
 # holos-research v1.0.0 — 远程发布脚本（需用户手动执行，因 GitHub 远程写操作不在 agent 权限内）
 #
 # 作用：创建公共插件仓库 → 推送代码 → 创建 GitHub Release v1.0.0（含 tarball + 签名）→
-#       向官方 SII-Holos/synergy-plugins 注册表开 PR。
+#       向官方 SII-Holos/synergy-plugins 注册表开 PR → 自动验证并打印全部链接。
 #
-# 前置：gh 已登录（gh auth status）、本目录为 holos-research 插件仓库（git main 分支）。
+# 前置：gh 已登录（gh auth status）、网络可达 github.com。
 # 用法：bash script/publish.sh
 set -euo pipefail
 
 REPO="yzxoi/holos-research"
+REPO_URL="git@github.com:${REPO}.git"
 VERSION="1.0.0"
 TARBALL="holos-research-1.0.0.synergy-plugin.tgz"
 SIG="${TARBALL}.sig"
 REGISTRY_ENTRY=".release/registry-entry-holos-research.json"
-REGISTRY_REPO="https://github.com/SII-Holos/synergy-plugins.git"
+REGISTRY_REPO="SII-Holos/synergy-plugins"
+REGISTRY_BRANCH="publish/holos-research-1.0.0"
+EXPECTED_SHA256="46e04957fa75487ee7abe83820c210fa49f8c1abc00d37711d625f1f87752521"
 
-echo "==> 1/4 创建公共仓库 ${REPO}（如已存在会跳过）"
-gh repo create "${REPO}" --public --source . --push \
-  --description "Synergy Plugin API 4 — structured research management: state machines, adversarial review, embedded Monitor panel" \
-  || echo "    (仓库可能已存在，继续)"
+fail() { echo "❌ $*" >&2; exit 1; }
 
-echo "==> 2/4 确保 main 分支已推送"
+# ── 0/6 预检 ────────────────────────────────────────────────────────────────
+echo "==> 0/6 预检"
+gh auth status >/dev/null 2>&1 || fail "gh 未登录。请先运行: gh auth login"
+[ -f "${TARBALL}" ] || fail "缺少 ${TARBALL}（请先在插件目录运行 bunx synergy-plugin pack）"
+[ -f "${SIG}" ] || fail "缺少 ${SIG}（请先运行 bunx synergy-plugin sign ${TARBALL}）"
+[ -f "${REGISTRY_ENTRY}" ] || fail "缺少 ${REGISTRY_ENTRY}"
+[ -f RELEASE_NOTES.md ] || fail "缺少 RELEASE_NOTES.md"
+
+ACTUAL_SHA256="$(shasum -a 256 "${TARBALL}" | awk '{print $1}')"
+[ "${ACTUAL_SHA256}" = "${EXPECTED_SHA256}" ] \
+  || fail "tarball 哈希不匹配：期望 ${EXPECTED_SHA256}，实际 ${ACTUAL_SHA256}"
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail "当前目录不是 git 仓库"
+[ "$(git branch --show-current)" = "main" ] || fail "当前分支不是 main（当前: $(git branch --show-current)）"
+
+# ── 1/6 创建公共仓库（幂等）──────────────────────────────────────────────────
+echo "==> 1/6 创建公共仓库 ${REPO}"
+if gh repo view "${REPO}" >/dev/null 2>&1; then
+  echo "    ✔ 仓库已存在，跳过创建"
+else
+  gh repo create "${REPO}" --public \
+    --description "Synergy Plugin API 4 — structured research management: state machines, adversarial review, embedded Monitor panel"
+  echo "    ✔ 仓库已创建"
+fi
+git remote get-url origin >/dev/null 2>&1 || git remote add origin "${REPO_URL}"
+
+# ── 2/6 推送 main ───────────────────────────────────────────────────────────
+echo "==> 2/6 推送 main"
 git push -u origin main
 
-echo "==> 3/4 创建 GitHub Release v${VERSION}（含 tarball + Ed25519 签名）"
-gh release create "v${VERSION}" "${TARBALL}" "${SIG}" \
-  --repo "${REPO}" \
-  --title "holos-research v${VERSION}" \
-  --notes-file RELEASE_NOTES.md
+# ── 3/6 创建 Release v1.0.0（幂等）──────────────────────────────────────────
+echo "==> 3/6 创建 GitHub Release v${VERSION}"
+if gh release view "v${VERSION}" --repo "${REPO}" >/dev/null 2>&1; then
+  echo "    ✔ Release v${VERSION} 已存在，跳过创建"
+else
+  gh release create "v${VERSION}" "${TARBALL}" "${SIG}" \
+    --repo "${REPO}" \
+    --title "holos-research v${VERSION}" \
+    --notes-file RELEASE_NOTES.md
+  echo "    ✔ Release 已创建"
+fi
 
-echo "==> 4/4 向官方注册表 ${REGISTRY_REPO} 开 PR"
+# ── 4/6 准备官方注册表分支 ──────────────────────────────────────────────────
+echo "==> 4/6 向官方注册表 ${REGISTRY_REPO} 准备条目"
 REG_DIR="$(mktemp -d)"
-git clone --depth 1 "${REGISTRY_REPO}" "${REG_DIR}"
+trap 'rm -rf "${REG_DIR}"' EXIT
+git clone --depth 1 "https://github.com/${REGISTRY_REPO}.git" "${REG_DIR}"
 cp "${REGISTRY_ENTRY}" "${REG_DIR}/plugins/holos-research.json"
-(cd "${REG_DIR}" && git checkout -b publish/holos-research-1.0.0 \
-  && git add plugins/holos-research.json \
-  && git commit -m "add holos-research 1.0.0 (API4)" \
-  && git push -u origin publish/holos-research-1.0.0 \
-  && gh pr create \
-      --base main \
-      --head publish/holos-research-1.0.0 \
-      --title "Add holos-research 1.0.0 to the Official Plugin Registry" \
-      --body-file "/dev/stdin" <<'EOF'
+git -C "${REG_DIR}" checkout -b "${REGISTRY_BRANCH}"
+git -C "${REG_DIR}" add plugins/holos-research.json
+git -C "${REG_DIR}" commit -m "add holos-research 1.0.0 (API4)"
+
+# ── 5/6 推送注册表分支并开 PR（幂等）────────────────────────────────────────
+echo "==> 5/6 推送分支并开 PR"
+if gh pr view "${REGISTRY_BRANCH}" --repo "${REGISTRY_REPO}" >/dev/null 2>&1; then
+  echo "    ✔ PR 已存在，跳过创建"
+else
+  git -C "${REG_DIR}" push -u origin "${REGISTRY_BRANCH}"
+  gh pr create \
+    --repo "${REGISTRY_REPO}" \
+    --base main \
+    --head "${REGISTRY_BRANCH}" \
+    --title "Add holos-research 1.0.0 to the Official Plugin Registry" \
+    --body-file "/dev/stdin" <<'EOF'
 Adds **holos-research** v1.0.0 to the official Synergy Plugin Market registry — a Plugin API 4 plugin for structured research management (15 tools, 4 agents, 17 skills, 9 monitor operations, embedded Solid Monitor workbench panel; workspace.read/write only).
 
 - Plugin id: `holos-research` · Version: 1.0.0 · API 4.0 · compatibility `synergy >= 3.0.11`
@@ -50,7 +92,15 @@ Adds **holos-research** v1.0.0 to the official Synergy Plugin Market registry �
 - Integrity: sha256-46e04957fa75487ee7abe83820c210fa49f8c1abc00d37711d625f1f87752521
 - Verified via `synergy-plugin build/validate --runtime-discovery/pack` + 688 tests + isolated-instance E2E
 EOF
-)
-rm -rf "${REG_DIR}"
+  echo "    ✔ PR 已创建"
+fi
 
-echo "==> 完成。检查上面的 PR 链接并等待维护者 review。"
+# ── 6/6 验证 ────────────────────────────────────────────────────────────────
+echo "==> 6/6 验证发布产出"
+gh repo view "${REPO}" --json name,url,visibility -q '.name + " | " + .url + " | " + .visibility'
+gh release view "v${VERSION}" --repo "${REPO}" --json tagName,assets \
+  -q '"Release " + .tagName + " | assets: " + ([.assets[].name] | join(", "))'
+PR_URL="$(gh pr list --repo "${REGISTRY_REPO}" --head "${REGISTRY_BRANCH}" --state open --json url -q '.[0].url // "NONE"')"
+echo "Registry PR: ${PR_URL}"
+echo
+echo "==> 完成。请将上面的 repo/release/PR 链接发回给 agent 以完成验收。"
