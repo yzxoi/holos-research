@@ -5,18 +5,12 @@
   "description": "Structured research management — from idea discovery through paper submission, with full state machine tracking, adversarial review, and audit trail.",
   "repo": "https://github.com/yzxoi/holos-research",
   "author": {
-    "name": "Zhengxi YU",
-    "url": "https://github.com/yzxoi"
+    "name": "unknown"
   },
   "verified": false,
   "official": false,
   "keywords": [
-    "synergy-plugin",
-    "research",
-    "academic",
-    "literature",
-    "state-machine",
-    "paper"
+    "synergy-plugin"
   ],
   "compatibility": {
     "synergy": ">=3.0.11"
@@ -34,8 +28,8 @@
         "algorithm": "ed25519",
         "signer": "483a6c48d867e72b6d48158918da77237e15b3d0e6d9f4f6ae8393cd198280ee"
       },
-      "integrity": "sha256-46e04957fa75487ee7abe83820c210fa49f8c1abc00d37711d625f1f87752521",
-      "manifestHash": "41e0a4c6f88b28da2023edf8b7d17692e0ca3c15b06369391e4b8c11d4aed68e",
+      "integrity": "sha256-d03cb3e45e852aab9bfa1d78f32492b6f07ba4ded16290c6fac7894c6b5ebceb",
+      "manifestHash": "f5d4bcf1cb9e0c1b701bba7195f4e05b810844c2ef0fc4dff40d4d45e99ba490",
       "permissionsHash": "db53809dfa296668f1f551df64296b1b4f74aee3a2027f230f00ed5ee96b4839",
       "runtimeMode": "process",
       "featuresSummary": [
@@ -162,9 +156,8 @@
       "uiSurfaces": [
         "ui.workbenchPanel"
       ],
-      "publishedAt": "2026-08-07T17:28:47.039Z"
+      "publishedAt": "2026-08-07T23:07:28.243Z"
     }
   ],
-  "yankedVersions": [],
-  "homepage": "https://github.com/yzxoi/holos-research"
+  "yankedVersions": []
 }

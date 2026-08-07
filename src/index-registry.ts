@@ -214,7 +214,16 @@ function bucketFor(
   if (dir === "phase_runs") return { key: "phaseRuns" };
   if (dir === "diagnoses") return { key: "diagnoses" };
   if (dir === "journal") return { key: "journalNotes" };
-  if (AUX_DIRS.includes(dir)) return { key: "files", sub: dir };
+  // Match the longest AUX_DIRS prefix so nested buckets (literature/papers,
+  // literature/by-topic) register under their full relative-path bucket
+  // instead of the top-level dir. Without this, files written under
+  // literature/papers/x.yaml land in files["literature"] while
+  // listIndexedYaml("literature/papers") reads files["literature/papers"].
+  const dirPath = parts.slice(0, -1).join("/");
+  const matched = AUX_DIRS.filter((a) => dirPath === a || dirPath.startsWith(`${a}/`)).sort(
+    (a, b) => b.length - a.length,
+  )[0];
+  if (matched) return { key: "files", sub: matched };
   void name;
   return null;
 }
