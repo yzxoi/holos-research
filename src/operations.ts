@@ -1,5 +1,5 @@
-import { operation } from "@ericsanchezok/synergy-plugin";
 import type { PluginInvocationContext } from "@ericsanchezok/synergy-plugin";
+import { operation } from "@ericsanchezok/synergy-plugin";
 import z from "zod";
 import { runWithInvocation, type WorkspaceService } from "./ctx";
 import { ResearchFS } from "./fs";
@@ -28,10 +28,7 @@ function hostWorkspace(context: PluginInvocationContext): WorkspaceService | und
  * then run the aggregation. `fn` observes the bound service through
  * `ctx.workspace()` and the directory through `scopeDir()`.
  */
-async function runInScope<T>(
-  context: PluginInvocationContext,
-  fn: () => Promise<T>,
-): Promise<T> {
+async function runInScope<T>(context: PluginInvocationContext, fn: () => Promise<T>): Promise<T> {
   const svc = hostWorkspace(context);
   const meta = (await svc?.metadata?.()) as { scopeId?: string; directory?: string } | undefined;
   const dir = meta?.directory;
