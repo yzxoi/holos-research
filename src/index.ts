@@ -4,7 +4,6 @@ import {
   capability,
   definePlugin,
   event,
-  navigationItem,
   operation,
   skill,
   tool,
@@ -316,15 +315,6 @@ export default definePlugin({
       requiresSession: false,
       defaultResource: { id: "overview", title: "Overview" },
       component: { source: "./src/ui/monitor-panel.tsx" },
-    }),
-    // Left-sidebar entry that renders the same Monitor panel as a plugin page.
-    // The host passes PluginSurfaceContext directly as component props, so the
-    // navigation component forwards it to the shared MonitorPanel.
-    navigationItem({
-      id: "monitor",
-      label: "Research Monitor",
-      placement: "sidebar",
-      component: { source: "./src/ui/monitor-nav.tsx" },
     }),
   ],
 });
