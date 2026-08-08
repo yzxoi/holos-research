@@ -120,9 +120,13 @@ describe("monitor operations (UI data contract)", () => {
     })
   })
 
-  test("uninitialized project throws structured error", async () => {
+  test("uninitialized project returns empty payload (panel empty state)", async () => {
     await runWithDirectory(undefined, async () => {
-      await expect(monitorAll.handler({}, makeCtx())).rejects.toThrow(/research_init/)
+      const data = (await monitorAll.handler({}, makeCtx())) as Record<string, unknown>
+      expect(data.workflow).toBeNull()
+      expect(data.entities).toMatchObject({ counts: { ideas: 0 } })
+      expect(data.entityRecords).toEqual([])
+      expect(data.phaseRuns).toEqual([])
     })
   })
 

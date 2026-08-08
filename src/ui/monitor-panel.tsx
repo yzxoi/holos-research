@@ -7,10 +7,6 @@ import WorkflowBoard from "./components/WorkflowBoard";
 import { buildMonitorData, isEmptyMonitor } from "./data";
 import type { ApiHumanCheckpoint, ApiResponse, MonitorData, PhaseName, ResearchBrief } from "./types";
 
-interface MonitorPanelProps {
-  context: PluginSurfaceContext;
-}
-
 interface LoadState {
   status: "loading" | "error" | "ready" | "empty";
   error?: string;
@@ -101,7 +97,7 @@ function EmptyState() {
   );
 }
 
-export default function MonitorPanel({ context }: MonitorPanelProps) {
+export default function MonitorPanel(context: PluginSurfaceContext) {
   const [state, setState] = createSignal<LoadState>({ status: "loading" });
   const [data, setData] = createSignal<MonitorData | null>(null);
   const [brief, setBrief] = createSignal<ResearchBrief | null>(null);

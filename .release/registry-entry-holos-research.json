@@ -28,9 +28,9 @@
         "algorithm": "ed25519",
         "signer": "483a6c48d867e72b6d48158918da77237e15b3d0e6d9f4f6ae8393cd198280ee"
       },
-      "integrity": "sha256-d03cb3e45e852aab9bfa1d78f32492b6f07ba4ded16290c6fac7894c6b5ebceb",
-      "manifestHash": "f5d4bcf1cb9e0c1b701bba7195f4e05b810844c2ef0fc4dff40d4d45e99ba490",
-      "permissionsHash": "db53809dfa296668f1f551df64296b1b4f74aee3a2027f230f00ed5ee96b4839",
+      "integrity": "sha256-94e39794f26c792738f05cbd04227023083e9ab0c78b0f675e8b97355bcf91c2",
+      "manifestHash": "007517d80f4b8e2b578f27e2191338f54937a24b4d4402c5f8a02e41f1b1227c",
+      "permissionsHash": "d51f02064cd3133284b24f707db1e6b5924d7c73985aa03c9d7510003c70bcbb",
       "runtimeMode": "process",
       "featuresSummary": [
         {
@@ -121,7 +121,7 @@
         {
           "key": "ui",
           "title": "Synergy interface extensions",
-          "description": "Adds 1 interface extension."
+          "description": "Adds 2 interface extensions."
         }
       ],
       "permissionsSummary": [
@@ -154,9 +154,10 @@
         "research_checkpoint_brief"
       ],
       "uiSurfaces": [
-        "ui.workbenchPanel"
+        "ui.workbenchPanel",
+        "ui.navigationItem"
       ],
-      "publishedAt": "2026-08-07T23:07:28.243Z"
+      "publishedAt": "2026-08-08T01:49:16.378Z"
     }
   ],
   "yankedVersions": []

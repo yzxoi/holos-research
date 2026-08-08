@@ -44,6 +44,35 @@ async function requireInitialized(): Promise<void> {
   }
 }
 
+/**
+ * Empty dashboard payload for uninitialized projects. The panel's
+ * isEmptyMonitor() treats this as the empty state ("run research_init to
+ * start") instead of a data-stream error.
+ */
+function emptyMonitorPayload() {
+  return {
+    workflow: null,
+    entities: {
+      counts: {
+        ideas: 0,
+        plans: 0,
+        experiments: 0,
+        claims: 0,
+        exhibits: 0,
+        papers: 0,
+        submissions: 0,
+      },
+      focus_refs: {},
+    },
+    entityRecords: [],
+    timeline: { events: [] },
+    journal: { notes: [] },
+    activeRun: null,
+    phaseDetailsMap: {},
+    phaseRuns: [],
+  };
+}
+
 function checkpointsForRun(run: { human_checkpoints?: Array<{ status?: string }> }): number {
   return (run.human_checkpoints ?? []).filter((c) => c.status === "pending").length;
 }
@@ -56,7 +85,7 @@ export const monitorAll = operation({
   output: z.unknown(),
   async handler(_input, context) {
     return runInScope(context, async () => {
-      await requireInitialized();
+      if (!(await ResearchFS.isInitialized())) return emptyMonitorPayload();
       const allPhaseRuns = await PhaseRunManager.list();
       const [workflow, entities, entityRecords, timeline, journal, activeRun] = await Promise.all([
         monitorBoard.cached("workflow", 5_000, () => monitorBoard.getWorkflowStatus()),
