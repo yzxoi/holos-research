@@ -66,53 +66,59 @@ function buildSpark(timeline: TimelineEvent[] | undefined, kind: EntityKind): nu
   return buckets;
 }
 
-export default function EntitySummary({ summaries, activeFilter, onFilter, timeline }: EntitySummaryProps) {
+/**
+ * NOTE: props must be read through the `props` object inside reactive scopes
+ * (`isActive()` getters), never destructured at the component top — Solid
+ * component functions run once at mount, so destructuring would freeze the
+ * initial `activeFilter` (null) and filtering would never highlight cards.
+ */
+export default function EntitySummary(props: EntitySummaryProps) {
   return (
     <div class="holos-entity-grid">
-      <For each={summaries}>
+      <For each={props.summaries}>
         {(s, idx) => {
           const color = ENTITY_KIND_COLORS[s.kind];
-          const isActive = activeFilter === s.kind;
-          const isFiltering = activeFilter !== null && activeFilter !== s.kind;
-          const spark = buildSpark(timeline, s.kind);
+          const isActive = () => props.activeFilter === s.kind;
+          const isFiltering = () => props.activeFilter !== null && props.activeFilter !== s.kind;
+          const spark = buildSpark(props.timeline, s.kind);
           return (
             <button
               type="button"
               class="holos-entity-card"
-              classList={{ "holos-entity-card--active": isActive, "holos-entity-card--dimmed": isFiltering }}
+              classList={{ "holos-entity-card--active": isActive(), "holos-entity-card--dimmed": isFiltering() }}
               style={{
                 "animation-delay": `${idx() * 0.04}s`,
-                background: isActive ? `${color}10` : "var(--surface-inset-base)",
-                border: `1px solid ${isActive ? `${color}50` : "var(--border-base)"}`,
+                background: isActive() ? `${color}10` : "var(--surface-inset-base)",
+                border: `1px solid ${isActive() ? `${color}50` : "var(--border-base)"}`,
               }}
-              onClick={() => onFilter(isActive ? null : s.kind)}
-              aria-pressed={isActive}
+              onClick={() => props.onFilter(isActive() ? null : s.kind)}
+              aria-pressed={isActive()}
               aria-label={`Filter by ${s.displayName}`}
             >
-              <Show when={isActive}>
+              <Show when={isActive()}>
                 <div
                   class="holos-entity-card__accent"
                   style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }}
                 />
               </Show>
               <div class="holos-entity-card__head">
-                <span class="holos-entity-card__label" style={{ color: isActive ? color : "var(--text-subtle)" }}>
+                <span class="holos-entity-card__label" style={{ color: isActive() ? color : "var(--text-subtle)" }}>
                   <Icon
                     name={KIND_ICONS[s.kind]}
                     size={12}
-                    color={isActive ? color : "var(--text-subtle)"}
+                    color={isActive() ? color : "var(--text-subtle)"}
                     strokeWidth={2}
                   />
                   {s.displayName}
                 </span>
-                <span class="holos-entity-card__symbol" style={{ color: isActive ? color : "var(--text-weaker)" }}>
+                <span class="holos-entity-card__symbol" style={{ color: isActive() ? color : "var(--text-weaker)" }}>
                   {KIND_SYMBOL[s.kind]}
                 </span>
               </div>
               <div class="holos-entity-card__count">
                 <span
                   class="holos-entity-card__number"
-                  style={{ color: isActive ? color : s.total > 0 ? "var(--text-strong)" : "var(--text-weaker)" }}
+                  style={{ color: isActive() ? color : s.total > 0 ? "var(--text-strong)" : "var(--text-weaker)" }}
                 >
                   {s.total}
                 </span>
@@ -121,7 +127,7 @@ export default function EntitySummary({ summaries, activeFilter, onFilter, timel
               <div class="holos-entity-card__spark" style={{ opacity: spark.every((v) => v === 0) ? 0.3 : 1 }}>
                 <SparkArea
                   data={spark}
-                  color={isActive ? color : "var(--text-weaker)"}
+                  color={isActive() ? color : "var(--text-weaker)"}
                   height={22}
                   gradientId={`holos-spark-${s.kind}`}
                 />

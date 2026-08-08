@@ -39,19 +39,26 @@ const IMPORTANCE_COLOR: Record<string, string> = {
   normal: "var(--text-weaker)",
 };
 
-export default function JournalFeed({ entries, phaseFilter, maxHeight = 380 }: JournalFeedProps) {
-  const filtered = phaseFilter ? entries.filter((e) => e.phase === phaseFilter) : entries;
-  const sorted = [...filtered].sort((a, b) => {
-    const impDiff =
-      (IMPORTANCE_WEIGHT[b.importance ?? "normal"] ?? 1) - (IMPORTANCE_WEIGHT[a.importance ?? "normal"] ?? 1);
-    if (impDiff !== 0) return impDiff;
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-  });
+/**
+ * NOTE: props must be read through the `props` object inside reactive scopes —
+ * Solid component functions run once at mount, so destructuring would freeze
+ * the initial values and later prop updates (phaseFilter) would never re-render.
+ */
+export default function JournalFeed(props: JournalFeedProps) {
+  const filtered = () =>
+    props.phaseFilter ? props.entries.filter((e) => e.phase === props.phaseFilter) : props.entries;
+  const sorted = () =>
+    [...filtered()].sort((a, b) => {
+      const impDiff =
+        (IMPORTANCE_WEIGHT[b.importance ?? "normal"] ?? 1) - (IMPORTANCE_WEIGHT[a.importance ?? "normal"] ?? 1);
+      if (impDiff !== 0) return impDiff;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
   return (
-    <div class="holos-journal" style={{ "max-height": `${maxHeight}px` }}>
+    <div class="holos-journal" style={{ "max-height": `${props.maxHeight}px` }}>
       <Show
-        when={sorted.length > 0}
+        when={sorted().length > 0}
         fallback={
           <div class="holos-journal__empty">
             <Icon name="sticky" size={18} color="var(--text-weaker)" strokeWidth={1.5} />
@@ -59,7 +66,7 @@ export default function JournalFeed({ entries, phaseFilter, maxHeight = 380 }: J
           </div>
         }
       >
-        <For each={sorted}>
+        <For each={sorted()}>
           {(entry, idx) => {
             const cfg = KIND_CONFIG[entry.kind] ?? DEFAULT_KIND;
             const importance = entry.importance ?? "normal";

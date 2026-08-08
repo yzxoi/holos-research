@@ -15,21 +15,20 @@ interface WorkflowBoardProps {
   brief: ResearchBriefType | null;
 }
 
-export default function WorkflowBoard({ data, brief }: WorkflowBoardProps) {
+/**
+ * NOTE: props must be accessed through the `props` object, never destructured —
+ * Solid component functions run once at mount, so destructuring captures the
+ * initial values and loses reactivity for later prop updates (e.g. the phase
+ * drawer would never open and entity filtering would never highlight).
+ */
+export default function WorkflowBoard(props: WorkflowBoardProps) {
   const [selectedPhase, setSelectedPhase] = createSignal<PhaseInfo | null>(null);
   const [entityFilter, setEntityFilter] = createSignal<EntityKind | null>(null);
 
-  const activePhase = () => data.phases.find((p) => p.status === "active");
-  const completedCount = () => data.phases.filter((p) => p.status === "completed").length;
-  const totalPhases = data.phases.length;
-  const progressPct = () => (totalPhases > 0 ? completedCount() / totalPhases : 0);
-
-  const phaseStatus = () => new Map(data.phases.map((p) => [p.name, p.status]));
-  const visibleEdges = () =>
-    data.pivotEdges.filter((e) => {
-      const s = phaseStatus().get(e.from);
-      return s === "completed" || s === "active";
-    });
+  const activePhase = () => props.data.phases.find((p) => p.status === "active");
+  const completedCount = () => props.data.phases.filter((p) => p.status === "completed").length;
+  const totalPhases = () => props.data.phases.length;
+  const progressPct = () => (totalPhases() > 0 ? completedCount() / totalPhases() : 0);
 
   const ringColor =
     progressPct() >= 0.8
@@ -38,7 +37,7 @@ export default function WorkflowBoard({ data, brief }: WorkflowBoardProps) {
         ? "var(--holos-accent)"
         : "var(--holos-warning)";
 
-  const entityTotal = () => data.entitySummaries.reduce((sum, s) => sum + s.total, 0);
+  const entityTotal = () => props.data.entitySummaries.reduce((sum, s) => sum + s.total, 0);
 
   return (
     <div class="holos-panel">
@@ -60,11 +59,11 @@ export default function WorkflowBoard({ data, brief }: WorkflowBoardProps) {
               LIVE
             </span>
           </div>
-          <h1 class="holos-header__project" title={data.anchor}>
-            {data.projectSummary ?? data.projectName}
+          <h1 class="holos-header__project" title={props.data.anchor}>
+            {props.data.projectSummary ?? props.data.projectName}
           </h1>
-          <Show when={data.anchor}>
-            <p class="holos-header__anchor">{data.anchor}</p>
+          <Show when={props.data.anchor}>
+            <p class="holos-header__anchor">{props.data.anchor}</p>
           </Show>
         </div>
 
@@ -72,11 +71,11 @@ export default function WorkflowBoard({ data, brief }: WorkflowBoardProps) {
           <div class="holos-header__completion">
             <ProgressRing
               value={completedCount()}
-              max={totalPhases}
+              max={totalPhases()}
               size={62}
               strokeWidth={4}
               color={ringColor}
-              label={`${completedCount()}/${totalPhases}`}
+              label={`${completedCount()}/${totalPhases()}`}
               sublabel="PHASE"
             />
             <div class="holos-header__completion-text">
@@ -96,7 +95,7 @@ export default function WorkflowBoard({ data, brief }: WorkflowBoardProps) {
                 {activePhase()?.displayName.toUpperCase()}
               </span>
               <span class="holos-meta">
-                phase {data.phases.indexOf(activePhase() as PhaseInfo) + 1} of {totalPhases}
+                phase {props.data.phases.indexOf(activePhase() as PhaseInfo) + 1} of {totalPhases()}
               </span>
             </div>
           </Show>
@@ -104,7 +103,7 @@ export default function WorkflowBoard({ data, brief }: WorkflowBoardProps) {
             <span class="holos-meta">LAST SYNC</span>
             <span class="holos-header__sync-time">
               <Icon name="clock" size={10} color="var(--text-weaker)" strokeWidth={2} />
-              {clockTime(data.lastUpdated)}
+              {clockTime(props.data.lastUpdated)}
             </span>
             <span class="holos-meta">event-driven</span>
           </div>
@@ -112,41 +111,12 @@ export default function WorkflowBoard({ data, brief }: WorkflowBoardProps) {
       </header>
 
       {/* ═══ RESEARCH BRIEF ════════════════════════════════ */}
-      <ResearchBrief brief={brief} />
+      <ResearchBrief brief={props.brief} />
 
       {/* ═══ PHASE FLOW ══════════════════════════════════ */}
       <section class="holos-section">
-        <PhaseFlow phases={data.phases} phaseRunCards={data.phaseRunCards} onSelect={setSelectedPhase} />
+        <PhaseFlow phases={props.data.phases} phaseRunCards={props.data.phaseRunCards} onSelect={setSelectedPhase} />
       </section>
-
-      {/* ═══ PIVOT ROUTES ════════════════════════════════ */}
-      <Show when={visibleEdges().length > 0}>
-        <section class="holos-section">
-          <div class="holos-section-head">
-            <h2 class="holos-section-title">
-              <Icon name="undo" size={11} color="var(--text-subtle)" strokeWidth={2.2} />
-              Available Pivot Routes
-            </h2>
-            <span class="holos-meta">{visibleEdges().length} reachable</span>
-          </div>
-          <div class="holos-pivot-routes">
-            <For each={visibleEdges()}>
-              {(e) => (
-                <div
-                  class="holos-pivot-route"
-                  style={{ background: "rgba(251, 191, 36, 0.05)", border: "1px solid rgba(251, 191, 36, 0.18)" }}
-                >
-                  <Icon name="undo" size={11} color="var(--holos-warning)" strokeWidth={2.2} />
-                  <span style={{ color: "var(--text-subtle)" }}>{e.from}</span>
-                  <Icon name="chevronRight" size={11} color="var(--text-weaker)" />
-                  <span style={{ color: "var(--text-subtle)" }}>{e.to}</span>
-                  <span class="holos-pivot-route__trigger">{e.trigger}</span>
-                </div>
-              )}
-            </For>
-          </div>
-        </section>
-      </Show>
 
       {/* ═══ ENTITY SUMMARY ══════════════════════════════ */}
       <section class="holos-section">
@@ -165,10 +135,10 @@ export default function WorkflowBoard({ data, brief }: WorkflowBoardProps) {
           </div>
         </div>
         <EntitySummary
-          summaries={data.entitySummaries}
+          summaries={props.data.entitySummaries}
           activeFilter={entityFilter()}
           onFilter={setEntityFilter}
-          timeline={data.timeline}
+          timeline={props.data.timeline}
         />
       </section>
 
@@ -180,9 +150,9 @@ export default function WorkflowBoard({ data, brief }: WorkflowBoardProps) {
               <Icon name="history" size={11} color="var(--text-subtle)" strokeWidth={2.2} />
               Timeline
             </h2>
-            <span class="holos-meta">{data.timeline.length} events</span>
+            <span class="holos-meta">{props.data.timeline.length} events</span>
           </div>
-          <TimelineFeed events={data.timeline} />
+          <TimelineFeed events={props.data.timeline} />
         </div>
         <div class="holos-card holos-card--feed">
           <div class="holos-card__head">
@@ -190,14 +160,14 @@ export default function WorkflowBoard({ data, brief }: WorkflowBoardProps) {
               <Icon name="book" size={11} color="var(--text-subtle)" strokeWidth={2.2} />
               Journal
             </h2>
-            <span class="holos-meta">{data.journal.length} entries</span>
+            <span class="holos-meta">{props.data.journal.length} entries</span>
           </div>
-          <JournalFeed entries={data.journal} />
+          <JournalFeed entries={props.data.journal} />
         </div>
       </section>
 
       {/* ═══ DRAWER ══════════════════════════════════════ */}
-      <PhaseDetailDrawer phase={selectedPhase()} data={data} onClose={() => setSelectedPhase(null)} />
+      <PhaseDetailDrawer phase={selectedPhase()} data={props.data} onClose={() => setSelectedPhase(null)} />
     </div>
   );
 }

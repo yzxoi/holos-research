@@ -102,14 +102,20 @@ const LEVEL_COLORS: Record<string, string> = {
   critical: "var(--holos-danger)",
 };
 
-export default function TimelineFeed({ events, phaseFilter, maxHeight = 380 }: TimelineFeedProps) {
-  const filtered = phaseFilter ? events.filter((e) => e.phase === phaseFilter) : events;
-  const sorted = [...filtered].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+/**
+ * NOTE: props must be read through the `props` object inside reactive scopes —
+ * Solid component functions run once at mount, so destructuring would freeze
+ * the initial values and later prop updates (phaseFilter) would never re-render.
+ */
+export default function TimelineFeed(props: TimelineFeedProps) {
+  const filtered = () => (props.phaseFilter ? props.events.filter((e) => e.phase === props.phaseFilter) : props.events);
+  const sorted = () =>
+    [...filtered()].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   return (
-    <div class="holos-timeline" style={{ "max-height": `${maxHeight}px` }}>
+    <div class="holos-timeline" style={{ "max-height": `${props.maxHeight}px` }}>
       <Show
-        when={sorted.length > 0}
+        when={sorted().length > 0}
         fallback={
           <div class="holos-timeline__empty">
             <Icon name="circle" size={18} color="var(--text-weaker)" strokeWidth={1.5} />
@@ -118,7 +124,7 @@ export default function TimelineFeed({ events, phaseFilter, maxHeight = 380 }: T
         }
       >
         <div class="holos-timeline__rail" />
-        <For each={sorted}>
+        <For each={sorted()}>
           {(evt, idx) => {
             const style = EVENT_CONFIG[evt.type] ?? DEFAULT_STYLE;
             const levelColor = evt.level ? LEVEL_COLORS[evt.level] : undefined;

@@ -175,19 +175,22 @@ function CheckpointCard({ chk }: { chk: HumanCheckpoint }) {
   );
 }
 
-export default function PhaseDetailDrawer({ phase, data, onClose }: PhaseDetailDrawerProps) {
-  const phaseEntities = () => (phase ? data.entities.filter((e) => e.phase === phase.name) : []);
+export default function PhaseDetailDrawer(props: PhaseDetailDrawerProps) {
+  const phaseEntities = () => {
+    const phase = props.phase;
+    return phase ? props.data.entities.filter((e) => e.phase === phase.name) : [];
+  };
 
   onMount(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") props.onClose();
     };
     window.addEventListener("keydown", handleKey);
     onCleanup(() => window.removeEventListener("keydown", handleKey));
   });
 
   return (
-    <Show when={phase}>
+    <Show when={props.phase}>
       {(p) => {
         const run = () => p().run;
         const stories = () => p().stories ?? [];
@@ -197,12 +200,11 @@ export default function PhaseDetailDrawer({ phase, data, onClose }: PhaseDetailD
           // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-close, Escape key provided onKeyDown
           <div
             class="holos-drawer-overlay"
-            tabIndex={-1}
             onClick={(e) => {
-              if (e.target === e.currentTarget) onClose();
+              if (e.target === e.currentTarget) props.onClose();
             }}
             onKeyDown={(e) => {
-              if (e.key === "Escape") onClose();
+              if (e.key === "Escape") props.onClose();
             }}
           >
             <div class="holos-drawer" role="dialog" aria-modal="true" aria-label={`${p().displayName} phase inspector`}>
@@ -214,7 +216,7 @@ export default function PhaseDetailDrawer({ phase, data, onClose }: PhaseDetailD
                   </div>
                   <h2 class="holos-drawer__title">{p().displayName}</h2>
                 </div>
-                <button type="button" class="holos-drawer__close" onClick={onClose} aria-label="Close">
+                <button type="button" class="holos-drawer__close" onClick={props.onClose} aria-label="Close">
                   <Icon name="x" size={16} color="var(--text-subtle)" strokeWidth={2.2} />
                 </button>
               </div>
@@ -601,7 +603,7 @@ export default function PhaseDetailDrawer({ phase, data, onClose }: PhaseDetailD
                 </Section>
 
                 <Section title="Phase Timeline" icon="history">
-                  <TimelineFeed events={data.timeline} phaseFilter={p().name} maxHeight={320} />
+                  <TimelineFeed events={props.data.timeline} phaseFilter={p().name} maxHeight={320} />
                 </Section>
 
                 <div class="holos-drawer__footer">

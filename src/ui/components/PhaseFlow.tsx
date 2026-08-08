@@ -40,10 +40,15 @@ interface FlowEdge {
   category?: string;
 }
 
-export default function PhaseFlow({ phases, phaseRunCards, onSelect }: PhaseFlowProps) {
+/**
+ * NOTE: props must be read through the `props` object — Solid component
+ * functions run once at mount, so destructuring would freeze the initial
+ * values and later prop updates (e.g. phase selection) would never re-render.
+ */
+export default function PhaseFlow(props: PhaseFlowProps) {
   const runsByPhase = new Map<PhaseName, PhaseRunCard[]>();
   for (const phase of PHASE_ORDER) runsByPhase.set(phase, []);
-  for (const card of phaseRunCards) {
+  for (const card of props.phaseRunCards) {
     const list = runsByPhase.get(card.phase);
     if (list) list.push(card);
   }
@@ -58,7 +63,7 @@ export default function PhaseFlow({ phases, phaseRunCards, onSelect }: PhaseFlow
   }
 
   const edges: FlowEdge[] = [];
-  for (const card of phaseRunCards) {
+  for (const card of props.phaseRunCards) {
     const fromIdx = runIndexByPhase.get(card.phase)?.get(card.id) ?? 0;
     if (card.status === "promoted") {
       const orderIdx = PHASE_ORDER.indexOf(card.phase);
@@ -77,7 +82,7 @@ export default function PhaseFlow({ phases, phaseRunCards, onSelect }: PhaseFlow
     }
   }
 
-  const totalRuns = phaseRunCards.length;
+  const totalRuns = props.phaseRunCards.length;
   const pivotEdges = edges.filter((e) => e.type === "pivot");
 
   return (
@@ -112,7 +117,7 @@ export default function PhaseFlow({ phases, phaseRunCards, onSelect }: PhaseFlow
       <div class="holos-flow__grid">
         <For each={PHASE_ORDER}>
           {(phaseName) => {
-            const phaseInfo = phases.find((p) => p.name === phaseName);
+            const phaseInfo = props.phases.find((p) => p.name === phaseName);
             const runs = runsByPhase.get(phaseName) ?? [];
             const isActive = phaseInfo?.status === "active";
             const isCompleted = phaseInfo?.status === "completed";
@@ -124,7 +129,7 @@ export default function PhaseFlow({ phases, phaseRunCards, onSelect }: PhaseFlow
                   class="holos-flow__col-head"
                   classList={{ "holos-flow__col-head--active": isActive }}
                   style={{ "border-color": isActive ? `${color}40` : "var(--border-weak-base)" }}
-                  onClick={() => phaseInfo && onSelect?.(phaseInfo)}
+                  onClick={() => phaseInfo && props.onSelect?.(phaseInfo)}
                 >
                   <div class="holos-flow__phase-num" style={{ color: isActive ? color : "var(--text-weaker)" }}>
                     {String(PHASE_ORDER.indexOf(phaseName) + 1).padStart(2, "0")}
@@ -184,7 +189,7 @@ export default function PhaseFlow({ phases, phaseRunCards, onSelect }: PhaseFlow
                             "min-height": "40px",
                             "animation-delay": `${Math.min(idx() * 0.05, 0.3)}s`,
                           }}
-                          onClick={() => phaseInfo && onSelect?.(phaseInfo)}
+                          onClick={() => phaseInfo && props.onSelect?.(phaseInfo)}
                         >
                           <div class="holos-flow__run-head">
                             <span
