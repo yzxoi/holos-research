@@ -33,93 +33,29 @@
 
 ---
 
-## RCM Mode (default when RDC + RCM are available)
+## Literature Discovery — `mcp__scholight__search_papers` (primary)
 
-When the RDC research data center and RCM pipeline engine are both available, replace the
-entire multi-step subagent workflow below with a single RCM CLI call.
+Use `mcp__scholight__search_papers` for ALL academic paper discovery in this skill (replaces the legacy arXiv search). The main agent or a visible subagent calls it directly.
 
-RCM handles: closest-work search (same problem + same mechanism), paper card ingest,
-contribution positioning, adversarial review (critic + scholar), revision, grounded
-StorySpine construction, and gate verdict — AND writes results to RDC.
+Tool contract:
+- `query` (required): a focused natural-language research question (task + method + domain/comparison).
+- `strength`: use `"thorough"` for novelty-critical discovery; `"standard"` for quick iteration.
+- `limit`: start at 5, raise to 10 for broad recall.
+- `categories`: optional exact subject codes as an ARRAY (e.g. `["cs.AI", "cs.CL"]`) — never a string.
+- `date_from` / `date_to`: optional `YYYY-MM-DD` bounds. For concurrent-work checks use `date_from` = 3 months ago.
+- Preserve the returned rank order.
 
-### Entry check
-- [ ] RDC is running (`rdc_read(entity_type="research")` works)
-- [ ] RCM CLI is available (`which accelerate`)
-- [ ] `RDC_URL` and `RDC_RESEARCH_ID` environment variables are set
-- [ ] Focus phase is `ground` (confirmed via `research_state(action="read")`)
-- [ ] At least one idea has status `selected` (confirmed via `research_idea(action="list")`)
+**Fallback discipline** (if scholight is unavailable/times out):
+- Retry once with `strength: "standard"` and a narrower query.
+- If still failing, fall back to `websearch`/`webfetch` on `https://arxiv.org/abs/...` or the arXiv search tool — never block the pipeline on a single tool.
 
-### Step A: Load context
+**Paper Card contract** (for every closest work): `research_wiki(ingest_paper)` creates `papers/{slug}.md` as a template; then APPEND/EDIT:
+- `## anchor_relevance` — where this paper sits relative to the idea (`closest work` / `foundation` / `competing mechanism`).
+- `## transfer` — could the method/idea transfer to our direction? how, and what would BLOCK it? (one line if no clear transfer).
+- `## evidence` — `html | full_text | partial | abstract_only`.
+Ground every claim in the paper; never fabricate numbers/methods/results.
 
-```
-research_state(action="read")
-research_idea(action="list", filter_status="selected")
-```
-
-Extract the selected idea ID, title, and anchor from the response.
-
-### Step B: Call RCM ground pipeline
-
-```bash
-RDC_URL=http://localhost:3000/api/v1 \
-RDC_RESEARCH_ID=<research_id> \
-accelerate run /path/to/RCM/examples/autoresearch/rcm/ground.rcm \
-  --purpose "Ground <selected idea title>: <anchor>" \
-  --stream 2>&1 | tee /tmp/rcm-ground-output.log
-```
-
-Use `background: true` and monitor progress. Set 10-20 minute timeout.
-
-### Step C: Read results from RDC
-
-After RCM completes:
-
-```
-research_idea(action="list", filter_status="selected")
-```
-
-Read the grounded StorySpine from `story_spines` table (via RDC API or directly).
-Read the positioning from `positionings` table.
-
-### Step D: Present to user with checkpoint
-
-**⏸ CHECKPOINT: reasonableness_check**
-
-Present:
-- Contribution statement (with type and honest strength calibration)
-- Positioning table (2-3 closest works)
-- Grounded StorySpine (grounded_angle, expected_main_claims, minimum_evidence)
-- Key concerns from review
-- Gate verdict from RCM
-
-Record user's confirmation:
-
-```
-research_journal(action="append", kind="decision_rationale",
-  summary="User confirmed grounded StorySpine for idea_XXX",
-  note="<user feedback>")
-```
-
-### Step E: Advance state
-
-```
-research_state(action="advance", target_phase="design",
-  summary="Method design for: <idea title>",
-  reason="Novelty position confirmed by user and adversarial review",
-  refs_idea="<selected_idea_id>")
-```
-
-### RCM mode checklist
-- [ ] RCM process completed without error
-- [ ] RDC positioning table contains contribution statement
-- [ ] StorySpine has grounded_angle populated
-- [ ] Gate verdict is `strong` or `acceptable`
-- [ ] User has confirmed reasonableness_check checkpoint
-- [ ] Focus phase advanced to `design`
-
-### Fallback
-
-If RCM is unavailable, fall through to the Traditional Subagent Mode below.
+---
 
 ## DAG Template
 
@@ -198,27 +134,32 @@ If the idea drifted during explore, flag it now.
 
 ## Step 1: Closest-Work Identification
 
-### 1.1 Targeted search (2 agents, not 3)
+### 1.1 Targeted search — two tracks, parallel (scholight)
 
-Deploy 2 parallel agents — one for same-problem work, one for same-mechanism work. Skip the generic industry search unless the idea is application-oriented.
+Deploy 2 parallel agents — one for **same-problem** work, one for **same-mechanism** work. Skip the generic industry search unless the idea is application-oriented. Both use `mcp__scholight__search_papers` with **3-4 queries each, `strength: "thorough"`, recall first** — cast a wide net so no close work is missed.
 
 ```
 task(subagent_type="scholar", background=true):
-  "Search for the most recent work (2025-2026) that is closest to this idea:
-   [paste idea description and core insight]
-   Focus on: same mechanism, same problem, same approach.
-   Look for both published work AND recent arxiv pre-prints (last 3 months).
-  For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
-  For minor papers: return title/arxiv/venue as text.
-    Return: title, one-line method, specific overlap with our idea, date, venue."
+  "You are the SameProblemScout. Find the most recent work (2025-2026) closest to
+   this idea: [paste idea description and core insight].
+   Use mcp__scholight__search_papers with 3-4 queries built from the idea's problem
+   statement, strength='thorough', limit=10 each. Include a query restricted to the
+   last 3 months (date_from) to catch concurrent pre-prints.
+   For each candidate: arXiv id, title, one-line method, SPECIFIC overlap with our
+   idea, date, venue. For the 2-3 most relevant: call
+   research_wiki(action='ingest_paper', ...) and build a Paper Card
+   (anchor_relevance/transfer/evidence sections) in .research/literature/papers/{slug}.md.
+   Return: ranked closest-work shortlist with concrete overlap analysis."
 
 task(subagent_type="scholar", background=true):
-  "Search for work that uses a similar MECHANISM to ours, even if applied to
-   a different problem or domain.
+  "You are the SameMechanismScout. Find work that uses a similar MECHANISM to ours,
+   even if applied to a different problem or domain.
    [paste the technical approach from idea description]
-  For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
-  For minor papers: return title/arxiv/venue as text.
-    Return: title, mechanism, domain, how it relates."
+   Use mcp__scholight__search_papers with 3-4 queries built from the mechanism's core
+   primitives (not the surface task), strength='thorough', limit=10 each.
+   For each candidate: arXiv id, title, mechanism, domain, how it relates to our
+   mechanism. For the 2-3 most relevant: ingest + build a Paper Card.
+   Return: ranked mechanism-overlap shortlist."
 ```
 
 ### 1.2 Build closest-work shortlist
@@ -229,6 +170,7 @@ Identify the **2-3** most directly related papers. For each:
 - Why does that difference matter?
 
 ### 1.3 Ingest findings
+
 Register any missed papers with `research_wiki(action="ingest_paper")`.
 Establish relationships: `research_wiki(action="link", ...)`
 
@@ -303,14 +245,16 @@ task(subagent_type="scholar", background=true):
   "Verify the novelty of this contribution claim:
    [paste contribution statement]
 
-   1. Search for any 2025-2026 work making a similar claim or using a similar mechanism
-   2. Verify each 'differs from' statement against the actual paper
-   3. Check for concurrent work in the last 3 months
+   1. Use mcp__scholight__search_papers (strength='thorough') to search for any
+      2025-2026 work making a similar claim or using a similar mechanism — 3-4 queries.
+   2. Add a concurrent-work query restricted to the last 3 months (date_from).
+   3. Verify each 'differs from' statement against the actual paper (read the closest
+      works' Paper Cards or full text via mcp__scholight__extract_url).
    4. Is the contribution type classification correct?
 
    Return: per-claim novelty verdict (NOVEL / PARTIAL / SCOOPED) + corrections.
-  For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
-  For minor papers: return title/arxiv/venue as text."
+   For important papers: call research_wiki(action='ingest_paper', ...) + build Paper Card.
+   For minor papers: return title/arxiv/venue as text."
 ```
 
 ### 3.3 Record reviews
@@ -457,6 +401,7 @@ research_state(action="advance", target_phase="design",
 | Drift detected | Present both directions to user for adjudication |
 | Reviewers disagree | Present both assessments, let user decide |
 | Phase rollback from design | Re-enter at Step 3 (review) with new information. Do NOT restart from Step 0 |
+| scholight unavailable/times out | Retry with `strength: "standard"`; fall back to websearch/webfetch on arxiv.org or the arXiv search tool; never block the pipeline |
 
 ### Rollback Cleanup
 

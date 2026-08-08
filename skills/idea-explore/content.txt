@@ -13,97 +13,6 @@
 
 ---
 
-## RCM Mode (default when RDC + RCM are available)
-
-When the RDC research data center and RCM pipeline engine are both available, replace the
-entire multi-step subagent workflow below with a single RCM CLI call.
-
-RCM handles: landscape survey, wonder signal extraction, 3-lens ideation, novelty check,
-adversarial review, idea pool ranking, and gate verdict — AND writes results to RDC.
-
-### Entry check
-- [ ] RDC is running (`rdc_read(entity_type="research")` works)
-- [ ] RCM CLI is available (`which accelerate`)
-- [ ] `RDC_URL` and `RDC_RESEARCH_ID` environment variables are set
-- [ ] Focus phase is `explore` (confirmed via `research_state(action="read")`)
-
-### Step A: Load anchor
-
-```
-research_state(action="read")
-```
-
-Extract `anchor`, `research_id`, and `project` from the response.
-
-### Step B: Call RCM explore pipeline
-
-Use `bash` tool to call RCM CLI. The RCM `explore.rcm` reads from RDC via `rdc_read`
-and writes results (ideas, story_spines, lit_papers, gate_records) back to RDC via `rdc_write`.
-
-```bash
-RDC_URL=http://localhost:3000/api/v1 \
-RDC_RESEARCH_ID=<research_id> \
-accelerate run /path/to/RCM/examples/autoresearch/rcm/explore.rcm \
-  --purpose "<anchor_text>" \
-  --stream 2>&1 | tee /tmp/rcm-explore-output.log
-```
-
-Use `background: true` and monitor progress via `process` tool. Set an appropriate
-timeout (10-20 minutes for explore).
-
-### Step C: Read results from RDC
-
-After RCM completes successfully:
-
-```
-research_idea(action="list")
-```
-
-Read each idea's `.md` to understand its StorySpine, novelty analysis, and review feedback.
-
-### Step D: Present to user with checkpoint
-
-**⏸ CHECKPOINT: taste_selection**
-
-Present the ranked idea pool to the user. Include:
-- Problem anchor (2-3 sentences)
-- Survey coverage (papers examined, wonder signals identified)
-- Surviving ideas with story spines, novelty, decisive test
-- Gate verdict from RCM (from `gate_records` table)
-
-Record user's selection:
-
-```
-research_idea(action="select", id="idea_XXX", decided_by="human", reason="<user's rationale>")
-```
-
-### Step F: Record gate and advance
-
-```
-research_timeline(action="append_free_event", event_type="milestone",
-  summary="RCM explore completed: N ideas generated, user selected idea_XXX",
-  event_refs=["idea_XXX"])
-research_state(action="advance", target_phase="ground",
-  summary="Grounding selected idea: <title>",
-  reason="Idea selected by user from RCM explore pipeline",
-  refs_idea="idea_XXX")
-```
-
-### RCM mode checklist
-- [ ] RCM process completed without error
-- [ ] RDC `research_idea(action="list")` returns ≥1 idea with status `proposed`
-- [ ] Gate verdict is `strong` or `acceptable` (not `insufficient` or `blocked`)
-- [ ] User has confirmed taste_selection checkpoint
-- [ ] Focus phase advanced to `ground`
-
-### Fallback
-
-If RCM is unavailable (CLI not found, process fails, or returns `insufficient`),
-fall through to the Traditional Subagent Mode below. The RCM error output is in
-`/tmp/rcm-explore-output.log` for debugging.
-
----
-
 ## Core Principle: Start From Friction, Not Decoration
 
 Novel ideas come from mismatches — not from "what clever thing can I add". Capture the mismatch first, then propose an intervention.
@@ -134,6 +43,7 @@ Novel ideas come from mismatches — not from "what clever thing can I add". Cap
 - [ ] Ideas are ranked by batch ranking, not manual filtering
 - [ ] User taste checkpoint before entering ground
 - [ ] Each idea starts from a concrete signal (anomaly/contradiction/missing mechanism), not from "what if we combined X and Y"
+- [ ] Survey artifacts exist under `.research/literature/survey/` (01a-01d scouts + 02_landscape) before wonder extraction
 
 ### Forbidden
 - [ ] Do not select a single idea too early — keep diverse candidates until user confirms
@@ -149,22 +59,54 @@ Novel ideas come from mismatches — not from "what clever thing can I add". Cap
 
 ## File & Subagent Conventions
 
-Load as needed:
-- `skill(name="experiment-cycle", reference="references/inspire-compute.md")` — GPU region and image policy for pilot experiments
+### Literature discovery — `mcp__scholight__search_papers` (primary)
+
+Use `mcp__scholight__search_papers` for ALL academic paper discovery (replaces the legacy arXiv search). The main agent or a visible subagent calls it directly.
+
+Tool contract (from the scholight MCP server):
+- `query` (required): a focused natural-language research question. Include task, method, domain, or comparison — not a loose keyword list.
+- `strength`: use `"thorough"` for survey/novelty-critical discovery (deeper ranking), `"standard"` for quick iteration.
+- `limit`: start at 5 for a focused answer; raise to 10 for broad recall.
+- `categories`: optional exact subject codes (e.g. `["cs.AI", "cs.CL"]`) — pass as an ARRAY, never a string.
+- `date_from` / `date_to`: optional `YYYY-MM-DD` bounds; align with the time-freshness rules.
+- Preserve the returned rank order — scholight ranks by relevance.
+
+**Fallback discipline** (if scholight is unavailable/times out):
+- Retry once with `strength: "standard"` and a narrower query.
+- If still failing, fall back to `websearch`/`webfetch` on `https://arxiv.org/abs/...` or the arXiv search tool — never block the pipeline on a single tool.
+
+### Paper full-text reading
+
+- Preferred: `mcp__scholight__extract_url(url="https://arxiv.org/html/<id>", output="main_markdown", max_chars=200000)` — structured HTML with headings and tables.
+- If the HTML version is missing/empty (<500 chars), fall back to `arxiv_download` (PDF to `.research/literature/papers/{id}.pdf`) then read the PDF.
+- If both fail, build the card from the abstract and mark `evidence: abstract_only` — never fabricate body details.
 
 ### When dispatching scholar
+
 ```
 File conventions for this project:
 - Return all text findings in your response — the main agent writes them to .research/.
 - For important papers (core relevance):
   1. Call research_wiki(action="ingest_paper", title="...", authors=[...], year=..., venue="...", arxiv="...", thesis="...", method="...", key_results="...", limitations="...", project_relevance="...")
-  2. Download PDF via arxiv_download to .research/literature/papers/{arxiv_id}.pdf
+  2. Build a Paper Card (see contract below) in .research/literature/papers/{slug}.md
 - For minor papers: return title/arxiv/venue as text, main agent decides whether to ingest.
+- Use mcp__scholight__search_papers for discovery; extract full text via mcp__scholight__extract_url or arxiv_download.
 ```
 
+### Paper Card contract (for every core paper)
+
+`research_wiki(ingest_paper)` creates `papers/{slug}.md` as a template. Then APPEND/EDIT the following sections (never overwrite evidence already present — the KB is append-only across stages):
+
+- `## anchor_relevance` — why this paper matters to the anchor; where it sits in the field structure (`closest work` / `foundation` / `competing mechanism`).
+- `## transfer` — could this method/idea transfer to the anchor's direction? how, and what would BLOCK it? If no clear transfer, say so in one line.
+- `## evidence` — one of: `html` (arXiv HTML read) | `full_text` (PDF text) | `partial` | `abstract_only`.
+
+Rules: ground every claim in the paper; never fabricate numbers/methods/results; report an honest evidence level; keep it compact.
+
 ### When dispatching scout
+
 ```
-Return all findings as text in your response. The main agent handles file organization.
+Return all findings as text in your response. The main agent writes the scout artifact to .research/literature/survey/.
 ```
 
 ---
@@ -176,9 +118,11 @@ Create this DAG at skill entry. Adjust based on `config.exploration.depth`.
 ```
 dagwrite({ nodes: [
   { id: "anchor",     content: "Freeze problem anchor, clarify with user",       status: "pending", deps: [] },
-  { id: "survey",     content: "Broad landscape survey (3-4 subagents)",         status: "pending", deps: ["anchor"] },
-  { id: "wonder",     content: "Extract wonder signals from survey results",     status: "pending", deps: ["survey"] },
-  { id: "generate",   content: "Wonder-driven idea generation (3 subagents)",    status: "pending", deps: ["wonder"] },
+  { id: "survey",     content: "Four parallel scouts (method/survey/venue/industry)", status: "pending", deps: ["anchor"] },
+  { id: "merge",      content: "Landscape merge from 4 scout artifacts",         status: "pending", deps: ["survey"] },
+  { id: "read_core",  content: "Core paper read + Paper Cards (fan-out)",        status: "pending", deps: ["merge"] },
+  { id: "wonder",     content: "Extract wonder signals from landscape + cards",  status: "pending", deps: ["read_core"] },
+  { id: "generate",   content: "Wonder-driven idea generation (3 lenses)",       status: "pending", deps: ["wonder"] },
   { id: "novelty",    content: "Per-claim novelty check (parallel scholars)",    status: "pending", deps: ["generate"] },
   { id: "review",     content: "Adversarial review of survivors",                status: "pending", deps: ["novelty"], assign: "critic" },
   { id: "pilot",      content: "Pilot experiments (if enabled)",                 status: "pending", deps: ["review"] },
@@ -187,7 +131,7 @@ dagwrite({ nodes: [
 ]})
 ```
 
-If `config.exploration.depth == "thorough"`, add `deep-dive` between `survey` and `wonder`.
+If `config.exploration.depth == "thorough"`, add a `deep-dive` round inside `survey` (extra queries per scout).
 If `config.exploration.pilot != "enabled"`, set `pilot` status to `cancelled`.
 
 ---
@@ -219,7 +163,9 @@ research_state(action="brief", context_refresh={trigger: "session_resume", loade
 - Multiple `idea_XXX` objects registered via `research_idea`
 - Each idea has a status: `exploring` / `parked` / `rejected`
 - At least one idea is ready for user selection
-- `.research/literature/survey.md` contains the full survey
+- Survey artifacts under `.research/literature/survey/` (01a-01d + 02_landscape.md)
+- `.research/literature/survey.md` contains the final synthesized survey
+- Paper Cards for core papers in `.research/literature/papers/{slug}.md`
 - Relevant papers ingested into wiki via `research_wiki(ingest_paper)`
 - Gaps registered via `research_wiki(register_gap)`
 
@@ -266,65 +212,128 @@ Throughout the skill, after every major step, verify: does this still address th
 
 ## Step 1: Landscape Survey
 
-### Round 1: Broad Mapping (3-4 subagents in parallel)
+Run the four scouts **in parallel** (`task(background=true)`). Each scout writes its own artifact file so the merge step can read all four deterministically. **Focus on friction points** — not just "what exists" but "what doesn't fit".
 
-Deploy agents to map the terrain. **Focus on friction points** — not just "what exists" but "what doesn't fit":
+### Round 1: Four Parallel Scouts
+
+#### Scout A — Method Scout → `.research/literature/survey/01a_method_scout.md`
 
 ```
 task(subagent_type="scholar", background=true):
-  "Search arxiv for [direction] papers from the last 12 months. Focus on:
-   (1) core methods and their mechanisms
-   (2) reported limitations and open questions
-   (3) ANOMALIES: results that seem contradictory or don't fit the prevailing story
-   (4) MISSING MEASUREMENTS: claims without the metric that would actually verify them
-   For each paper: title, authors, year, venue, arxiv ID, one-line method, key result, limitation.
-   For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
-   For minor papers: return title/arxiv/venue as text."
+  "You are the MethodScout. Map the core methods around this anchor: <anchor>.
+   Use mcp__scholight__search_papers with 4-6 queries built from the anchor and its
+   concept seeds, strength='thorough', limit=10 each. Cast a wide net — recall matters.
+   For each relevant paper note: arXiv id, title, year, one-line method, and — the key
+   job — any FRICTION visible from title/abstract: an anomaly, a reported limitation,
+   a mechanism whose gain is unexplained, or a setting where it is brittle. Do NOT
+   invent friction; only note what the abstract actually implies.
+   Write .research/literature/survey/01a_method_scout.md: paper list + a short
+   'friction signals' subsection. Return a short handoff summary in your response."
+```
 
+#### Scout B — Survey Scout → `.research/literature/survey/01b_survey_scout.md`
+
+```
 task(subagent_type="scholar", background=true):
-  "Search for survey papers and position papers on [direction] from 2024-2026.
-   Identify: consensus vs controversy, emerging sub-directions,
-   and especially CONTRADICTIONS between different groups' findings.
-   For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
-   For minor papers: return title/arxiv/venue as text."
+  "You are the SurveyScout. Map the field's structure and open controversies.
+   Use mcp__scholight__search_papers for survey and position papers on <anchor>
+   (2024-2026 window; use date_from/date_to), 3-5 queries, strength='thorough'.
+   Identify: consensus vs controversy, emerging sub-directions, and especially
+   CONTRADICTIONS between different groups' findings.
+   Write .research/literature/survey/01b_survey_scout.md: each paper (arXiv id, title,
+   year, one-line scope), then a 'field structure' subsection and a 'contradictions'
+   subsection. Return a short handoff summary."
+```
 
+#### Scout C — Venue Scout → `.research/literature/survey/01c_venue_scout.md`
+
+```
 task(subagent_type="scholar", background=true):
-  "Search for [direction] in top venues (NeurIPS/ICML/ICLR/ACL/EMNLP 2025-2026).
-   Focus on: accepted papers, their reviews (if public), recurring reviewer concerns,
-   and BRITTLENESS: where methods succeed and where they break.
-   For important papers: call research_wiki(action='ingest_paper', ...) + download PDF.
-   For minor papers: return title/arxiv/venue as text."
+  "You are the VenueScout. Find recent top-venue work near <anchor> (NeurIPS/ICML/ICLR/
+   ACL/EMNLP 2025-2026 era). Use mcp__scholight__search_papers with 3-5 queries,
+   strength='thorough'. Focus on BRITTLENESS: where a method succeeds and where it
+   fails, and recurring reviewer-style concerns visible in abstracts/limitations.
+   Write .research/literature/survey/01c_venue_scout.md: each paper (arXiv id, title,
+   venue/year if visible, the regime where it works vs where it breaks), then a
+   'brittleness signals' subsection. Return a short handoff summary."
+```
 
+#### Scout D — Industry Scout → `.research/literature/survey/01d_industry_scout.md`
+
+```
 task(subagent_type="scout", background=true):
-  "Search GitHub and industry for implementations or products related to [direction].
-   Focus on: what practitioners are actually building vs what papers claim,
-   common complaints in issues, DEPLOYMENT FAILURES, and real-world constraints not in papers.
-   Return as text: source, insight, relevance."
+  "You are the IndustryScout. Search GitHub and industry for implementations or products
+   related to <anchor>. Use websearch/webfetch. Focus on: what practitioners are
+   actually building vs what papers claim, common complaints in issues, DEPLOYMENT
+   FAILURES, and real-world constraints not in papers.
+   Write .research/literature/survey/01d_industry_scout.md: each signal with source,
+   insight, relevance. Return a short handoff summary."
 ```
 
-### Round 2: Deep Dive (thorough depth only)
+### Round 2: Landscape Merge → `.research/literature/survey/02_landscape.md`
 
-If `config.exploration.depth == "thorough"`, add a second round targeting specific gaps from Round 1.
+After all four scouts return, dispatch ONE merge agent (or merge yourself):
+
+```
+task(subagent_type="scholar", background=true):
+  "You are the LandscapeBuilder. Read .research/literature/survey/01a_method_scout.md,
+   01b_survey_scout.md, 01c_venue_scout.md, 01d_industry_scout.md, and the anchor.
+   Write .research/literature/survey/02_landscape.md with exactly these sections:
+   - landscape_overview: the terrain in a few sentences — dominant approaches and the
+     through-line around the anchor.
+   - method_families: main approach families, each with 1-2 representative papers
+     (arXiv id + one-line method), grouped with rough dates.
+   - industry_signals: what practitioners build/complain about, where it diverges
+     from papers.
+   - wonder_signal_candidates: the raw friction (anomalies, contradictions, missing
+     mechanisms, brittleness, missing measurements) — each one line with its source.
+     De-duplicate; keep the sharpest.
+   - core_paper_worklist: 5-10 papers worth reading IN FULL to ground ideation —
+     arXiv id + title + one line on why it is core. Prefer papers behind a wonder
+     signal or anchoring a method family.
+   - failed_approaches: a banlist of approaches already shown not to work.
+   Only include papers a scout actually found. Do not invent papers, families, or
+   friction signals. Return a short handoff summary."
+```
+
+### Round 3: Core Paper Read → Paper Cards
+
+For each paper in `core_paper_worklist`, dispatch one reader (fan-out, parallel):
+
+```
+task(subagent_type="scholar", background=true):
+  "You are the PaperCardWriter. Read ONE paper in full and write a compact, anchor-aware
+   card for <arXiv id> (<title>). Why it matters: <why from worklist>.
+   1. If .research/literature/papers/<slug>.md already exists, EXTEND it (append-only KB).
+   2. Read full text: mcp__scholight__extract_url('https://arxiv.org/html/<id>',
+      output='main_markdown', max_chars=200000). If that fails or returns <500 chars,
+      arxiv_download to .research/literature/papers/<id>.pdf and read the PDF. If both
+      fail, proceed from the abstract and mark evidence: abstract_only.
+   3. Write/append the card per the Paper Card contract: header, problem, method,
+      results (with caveats), anchor_relevance, transfer, evidence.
+   Ground every claim in the paper. Never fabricate numbers, methods, or results."
+```
 
 ### Time freshness rules
 
-- **Last 3 months**: most critical window — check arxiv and social media
+- **Last 3 months**: most critical window — use `date_from` in scholight queries and check social media
 - **Last 6 months**: standard relevance for method papers
 - **Last 2 years**: context and foundational understanding
 - **Older than 2 years**: only for foundational techniques or historical context
 
 ### Survey writeback
 
-After all rounds complete, synthesize into:
+After all rounds complete, synthesize into `.research/literature/survey.md`:
 
 1. Write `.research/literature/survey.md` with sections:
-   - Landscape Overview
+   - Landscape Overview (from 02_landscape.md)
    - Academic Methods (grouped by approach, with dates)
    - Industry Signals
    - **Wonder Signals** (anomalies, contradictions, missing mechanisms, brittleness)
    - Gaps and Open Problems
    - Time-Critical Signals (last 3 months)
    - Failed Approaches (banlist for idea generation)
+   - Core Papers (the worklist + card paths)
 
 2. Register gaps: `research_wiki(action="register_gap", ...)`
 
@@ -336,9 +345,9 @@ After all rounds complete, synthesize into:
 
 **This is the key differentiator from v2.1.** Instead of jumping from gap analysis to generic ideation, first extract and sharpen the friction signals.
 
-### 2.1 From survey to wonder log
+### 2.1 From landscape to wonder log
 
-Go through the survey findings and extract every signal that doesn't fit:
+Go through the landscape's `wonder_signal_candidates` and the paper cards, and extract every signal that doesn't fit:
 
 | Signal Type | Source | What doesn't fit | Why it matters | Next check |
 |-------------|--------|------------------|----------------|------------|
@@ -347,6 +356,7 @@ Go through the survey findings and extract every signal that doesn't fit:
 | Missing mechanism | Paper C | Gain reported without explanation | If we knew why, we could amplify or predict it | Ablate [component] |
 | Brittleness | Method D | Works on X, fails on Y | Regime split → different bottleneck | Characterize the boundary |
 | Missing measurement | Paper E | Strong claim without verification metric | The metric that would falsify is absent | Run the missing metric |
+| Cross-domain resonance | Card F transfer note | Bottleneck looks structurally similar to another field | Same primitive may transfer | Check structural match |
 
 ### 2.2 Sharpen each signal
 
@@ -372,11 +382,27 @@ Generate ideas by **sharpening wonder signals into mechanism hypotheses**. For e
 
 Focus on: anomaly explanations, hidden variable reveals, regime splits, re-grounding comparisons.
 
-### Agent 2 — Cross-domain structural transfer
+### Agent 2 — Cross-domain structural transfer (strengthened)
 
-Generate ideas by borrowing **only the core causal primitive** from another field — not the whole surface method. Only transfer when the bottleneck is actually the same structural problem.
+Generate ideas by borrowing **only the core causal primitive** from another field — not the whole surface method. Only transfer when the bottleneck is genuinely the same structure — not a surface analogy.
 
-Focus on: representation mismatches, objective mismatches, search geometry, feedback loop structures.
+```
+task(subagent_type="scholar", background=true):
+  "You are the TransferLens. Generate research ideas for <anchor> by borrowing the core
+   causal primitive from another field.
+   1. Read .research/literature/survey/02_landscape.md and the paper cards (transfer
+      fields are seeds).
+   2. Identify the STRUCTURE of the anchor's bottleneck: representation mismatch,
+      objective mismatch, search geometry, or feedback-loop structure. Find a field
+      that solved the SAME structural problem and borrow only its core causal primitive.
+      Only transfer when the bottleneck is genuinely the same structure.
+   3. For each idea include: title, core_insight, wonder_signal, source_field,
+      borrowed_primitive, anchor_alignment, contribution_type (often method_transfer),
+      simplest_intervention, decisive_test, simplest_baseline, null_result_teaches,
+      transfer_blocker (state explicitly what would BLOCK the transfer), and a draft
+      story_spine with >=2 candidate_paper_angles.
+   If the structures do not match, do not force the analogy — drop it."
+```
 
 ### Agent 3 — Contrarian / diagnostic
 
@@ -400,6 +426,9 @@ Generate ideas that **challenge assumptions** or **invert claims**:
 - decisive_test: [smallest experiment that could kill the idea]
 - simplest_baseline: [obvious control or prompt baseline]
 - null_result_teaches: [why the test is still decision-relevant if it fails]
+- source_field: [for method_transfer: the field the primitive comes from]
+- borrowed_primitive: [for method_transfer: the exact causal primitive borrowed]
+- transfer_blocker: [for method_transfer: what would block the transfer]
 - story_spine:
     field_assumption: [what does the field currently assume?]
     pain_point: [what specific failure does this create?]
@@ -422,6 +451,7 @@ Generate ideas that **challenge assumptions** or **invert claims**:
 - StorySpine is mandatory — if any field is weak, push back for concretization
 - Every top idea must have ≥2 candidate_paper_angles (different contribution types)
 - Maximize methodological diversity — avoid variations on a single theme
+- For `method_transfer` ideas: `source_field`, `borrowed_primitive`, and `transfer_blocker` are mandatory
 
 ### Novelty filter (apply to each idea before registering)
 
@@ -465,7 +495,7 @@ research_idea(action="create", title="<title>", content="## Core Insight\n\n[key
 
 ## Step 5: Per-Claim Novelty Check
 
-For the top 5-8 candidates, verify novelty per claim (same as v2.1 — parallel scholar dispatches).
+For the top 5-8 candidates, verify novelty per claim (parallel scholar dispatches using `mcp__scholight__search_papers`).
 
 ### 5.1 Build novelty summary table
 
@@ -482,7 +512,7 @@ For the top 5-8 candidates, verify novelty per claim (same as v2.1 — parallel 
 
 ### 5.3 Time-sensitivity check
 
-For each "novel" claim, verify no concurrent work in the last 3 months.
+For each "novel" claim, verify no concurrent work in the last 3 months (scholight query with `date_from` = 3 months ago, plus websearch for social media).
 
 ---
 
@@ -544,8 +574,10 @@ Present a structured report:
 
 ### Survey Coverage
 - Papers examined: N
+- Paper cards built: N (with evidence levels)
 - Wonder signals identified: N (anomalies, contradictions, missing mechanisms, etc.)
 - Date range: YYYY-MM to YYYY-MM
+- Survey artifacts: `.research/literature/survey/` (01a-01d + 02_landscape.md)
 
 ### Surviving Ideas
 
@@ -559,6 +591,7 @@ Present a structured report:
 - Decisive test + simplest baseline + null result teaches
 - Reviewer verdict and key concern
 - Candidate paper angles (≥2)
+- For method_transfer ideas: source_field + borrowed_primitive + transfer_blocker
 
 ### Eliminated Ideas
 
@@ -638,6 +671,7 @@ When generating ideas, apply one or more of these operators on a strong observat
 | Situation | Action |
 |-----------|--------|
 | No wonder signals found | Literature may be too sparse — broaden survey or switch to `lit-knowledge` skill |
+| scholight unavailable/times out | Retry with `strength: "standard"`; fall back to websearch/webfetch on arxiv.org or the arXiv search tool; never block the pipeline |
 | No ideas survive novelty check | Report with full banlist. Suggest: broaden scope, combine partial ideas, re-survey |
 | User rejects all ideas | Ask for specific feedback, return to Step 1 with adjusted scope and updated anchor |
 | All ideas are incremental | The anchor may need reframing — the problem itself may not have a high-impact angle |

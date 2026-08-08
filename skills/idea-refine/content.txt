@@ -180,12 +180,14 @@ This is NOT a full survey. Search only the specific gaps identified in Step 1.
 
 ### 2.1 Dispatch targeted scholars
 
-For each gap direction, dispatch a focused scholar:
+For each gap direction, dispatch a focused scholar. Use `mcp__scholight__search_papers` for discovery (replaces the legacy arXiv search): pass a focused natural-language query, `strength: "thorough"`, `limit: 10`, and `date_from`/`date_to` bounds for the 2024-2026 window. Fall back to websearch/webfetch on arxiv.org or the arXiv search tool only if scholight is unavailable.
 
 ```
 task(subagent_type="scholar", background=true, dag_node_id="research"):
   "Search for papers from 2024-2026 specifically about [gap direction].
-   Focus on: mechanisms that address [specific bottleneck], not general surveys.
+   Use mcp__scholight__search_papers (strength='thorough', limit=10, date_from/date_to
+   for the window). Focus on: mechanisms that address [specific bottleneck], not
+   general surveys.
    For core-relevance papers:
    1. Call research_wiki(action='ingest_paper', title='...', authors=[...], year=..., venue='...', arxiv='...', thesis='...', method='...', key_results='...', limitations='...', project_relevance='...', relevance='core')
    2. Download PDF via arxiv_download to .research/literature/papers/{arxiv_id}.pdf
@@ -316,12 +318,12 @@ For each ALIGNED/ADJACENT idea, do a quick novelty search:
 
 ```
 task(subagent_type="scout", background=true):
-  "Search arXiv, Google Scholar, and GitHub for work matching this idea:
+  "Run a novelty quick-check for this idea:
    Title: [idea title]
    Mechanism: [key mechanism]
-   Return: closest 3 papers/repos with similarity assessment.
+   Use mcp__scholight__search_papers (strength='standard', 2-3 queries) plus
+   websearch on GitHub. Return: closest 3 papers/repos with similarity assessment.
    If an exact match exists, say so clearly."
-```
 
 If exact match found → reject with evidence:
 ```

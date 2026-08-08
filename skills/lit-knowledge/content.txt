@@ -50,7 +50,7 @@ graph LR
 
 Nodes:
 - `load` — Load existing wiki state, gap map, and LIT_CONTEXT.md
-- `search` — Discover papers via scholar search, arXiv, or user input
+- `search` — Discover papers via `mcp__scholight__search_papers` (semantic retrieval; fall back to websearch/webfetch on arxiv.org or the arXiv search tool only if scholight is unavailable), or user input
 - `ingest` — Register papers via `ingest_paper` (creates .yaml, .md, bib entry)
 - `register_gaps` — Identify and register research gaps in gap_map.yaml
 - `link` — Add relationship edges between papers, ideas, gaps, and experiments

@@ -9,10 +9,14 @@ Map the research landscape into approach categories. Every major category must b
 
 #### 1.1 Dispatch Scholar for Landscape Mapping
 
+Use `mcp__scholight__search_papers` for discovery (replaces the legacy arXiv search): focused natural-language query per approach family, `strength: "thorough"`, `limit: 10`, `date_from`/`date_to` for the 2023-2026 window. Fall back to websearch/webfetch on arxiv.org or the arXiv search tool only if scholight is unavailable.
+
 ```
 task(subagent_type="scholar", background=true,
   "For the task of [task description], identify the major approach categories
    and the strongest method in each category.
+   Use mcp__scholight__search_papers (strength='thorough', limit=10, date_from/date_to
+   for 2023-2026).
 
    For each category, return:
    - Category name and key idea (one sentence)

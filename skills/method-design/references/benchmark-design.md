@@ -5,12 +5,13 @@
 
 ### Step 1: Survey Current Standards
 
-Dispatch scholar subagents to survey the benchmark landscape. Run multiple scholars in parallel — one per sub-area or task variant. Each scholar returns structured findings; the main agent synthesizes.
+Dispatch scholar subagents to survey the benchmark landscape. Run multiple scholars in parallel — one per sub-area or task variant. Each scholar returns structured findings; the main agent synthesizes. Use `mcp__scholight__search_papers` for discovery (replaces the legacy arXiv search): focused natural-language query per sub-area, `strength: "thorough"`, `limit: 10`, `date_from`/`date_to` for the 2024-2026 window. Fall back to websearch/webfetch on arxiv.org or the arXiv search tool only if scholight is unavailable.
 
 ```
 task(subagent_type="scholar", background=true,
   "Survey current standard benchmarks for [task] in [subfield].
-   For each benchmark found, report:
+   Use mcp__scholight__search_papers (strength='thorough', limit=10, date_from/date_to
+   for 2024-2026). For each benchmark found, report:
    - Name and year introduced
    - Task format and evaluation protocol
    - Current SOTA performance (cite specific papers with numbers)

@@ -75,11 +75,13 @@ Identify where the data will come from. For each source, document: access method
 
 #### Existing Public Datasets
 
-Search for datasets that match your requirements before building from scratch. Building a dataset is expensive; reusing an existing one is almost always faster and more defensible.
+Search for datasets that match your requirements before building from scratch. Building a dataset is expensive; reusing an existing one is almost always faster and more defensible. Use `mcp__scholight__search_papers` for discovery (replaces the legacy arXiv search): focused natural-language query for dataset papers, `strength: "standard"`, `limit: 10`. Fall back to websearch/webfetch on arxiv.org or the arXiv search tool only if scholight is unavailable.
 
 ```
 task(subagent_type="scholar", background=true,
   "Survey publicly available datasets for [task] in [domain].
+   Use mcp__scholight__search_papers (strength='standard', limit=10) to find
+   dataset papers and HuggingFace datasets.
    For each dataset, report:
    - Name, URL, and citation
    - Size (train/val/test counts)

@@ -196,12 +196,13 @@ From the wiki papers and idea positioning, extract:
 
 ### 1.2 Active search if needed
 
-If local material is insufficient:
+If local material is insufficient, use `mcp__scholight__search_papers` for discovery (replaces the legacy arXiv search): focused natural-language query, `strength: "thorough"`, `limit: 10`, `date_from`/`date_to` for the 2025-2026 window. Fall back to websearch/webfetch on arxiv.org or the arXiv search tool only if scholight is unavailable.
 
 ```
 task(subagent_type="scholar", background=true):
   "Find the most recent (2025-2026) methods that address [bottleneck].
-   Focus on: mechanism, training setup, failure modes.
+   Use mcp__scholight__search_papers (strength='thorough', limit=10, date_from/date_to
+   for the window). Focus on: mechanism, training setup, failure modes.
   For important papers (core relevance):
   1. Call research_wiki(action="ingest_paper", title="...", authors=[...], year=..., venue="...", arxiv="...", thesis="...", method="...", key_results="...", limitations="...", project_relevance="...") to register with content
   2. Download PDF via arxiv_download to .research/literature/papers/{arxiv_id}.pdf
