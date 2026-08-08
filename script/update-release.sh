@@ -11,8 +11,8 @@ set -euo pipefail
 
 REPO="yzxoi/holos-research"
 REPO_URL="git@github.com:${REPO}.git"
-VERSION="1.0.0"
-TARBALL="holos-research-1.0.0.synergy-plugin.tgz"
+VERSION="1.1.0"
+TARBALL="holos-research-1.1.0.synergy-plugin.tgz"
 SIG="${TARBALL}.sig"
 REGISTRY_ENTRY=".release/registry-entry-holos-research.json"
 REGISTRY_REPO="SII-Holos/synergy-plugins"
