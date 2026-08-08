@@ -24,6 +24,40 @@ interface WorkflowBoardProps {
 export default function WorkflowBoard(props: WorkflowBoardProps) {
   const [selectedPhase, setSelectedPhase] = createSignal<PhaseInfo | null>(null);
   const [entityFilter, setEntityFilter] = createSignal<EntityKind | null>(null);
+  const ENTITY_EVENT_PREFIXES: Record<EntityKind, string[]> = {
+    idea: ["idea."],
+    plan: ["plan."],
+    experiment: ["exp."],
+    claim: ["claim."],
+    exhibit: ["exhibit."],
+    paper: ["paper."],
+    submission: ["submission."],
+  };
+
+  const ENTITY_JOURNAL_PREFIXES: Record<EntityKind, string[]> = {
+    idea: ["idea_"],
+    experiment: ["experiment_"],
+    claim: ["claim_"],
+    paper: ["paper_"],
+    plan: [],
+    exhibit: [],
+    submission: [],
+  };
+
+  const filteredTimeline = () => {
+    const kind = entityFilter();
+    if (!kind) return props.data.timeline;
+    const prefixes = ENTITY_EVENT_PREFIXES[kind];
+    return props.data.timeline.filter((ev) => prefixes.some((p) => ev.type?.startsWith(p)));
+  };
+
+  const filteredJournal = () => {
+    const kind = entityFilter();
+    if (!kind) return props.data.journal;
+    const prefixes = ENTITY_JOURNAL_PREFIXES[kind];
+    if (prefixes.length === 0) return [];
+    return props.data.journal.filter((e) => prefixes.some((p) => e.kind?.startsWith(p)));
+  };
 
   const activePhase = () => props.data.phases.find((p) => p.status === "active");
   const completedCount = () => props.data.phases.filter((p) => p.status === "completed").length;
@@ -150,9 +184,12 @@ export default function WorkflowBoard(props: WorkflowBoardProps) {
               <Icon name="history" size={11} color="var(--text-subtle)" strokeWidth={2.2} />
               Timeline
             </h2>
-            <span class="holos-meta">{props.data.timeline.length} events</span>
+            <span class="holos-meta">
+              {filteredTimeline().length}
+              {entityFilter() ? ` / ${props.data.timeline.length}` : ""} events
+            </span>
           </div>
-          <TimelineFeed events={props.data.timeline} />
+          <TimelineFeed events={filteredTimeline()} />
         </div>
         <div class="holos-card holos-card--feed">
           <div class="holos-card__head">
@@ -160,9 +197,12 @@ export default function WorkflowBoard(props: WorkflowBoardProps) {
               <Icon name="book" size={11} color="var(--text-subtle)" strokeWidth={2.2} />
               Journal
             </h2>
-            <span class="holos-meta">{props.data.journal.length} entries</span>
+            <span class="holos-meta">
+              {filteredJournal().length}
+              {entityFilter() ? ` / ${props.data.journal.length}` : ""} entries
+            </span>
           </div>
-          <JournalFeed entries={props.data.journal} />
+          <JournalFeed entries={filteredJournal()} />
         </div>
       </section>
 
