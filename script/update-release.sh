@@ -16,7 +16,7 @@ TARBALL="holos-research-1.1.0.synergy-plugin.tgz"
 SIG="${TARBALL}.sig"
 REGISTRY_ENTRY=".release/registry-entry-holos-research.json"
 REGISTRY_REPO="SII-Holos/synergy-plugins"
-REGISTRY_BRANCH="publish/holos-research-1.0.0"
+REGISTRY_BRANCH="publish/holos-research-1.1.0"
 
 fail() { echo "❌ $*" >&2; exit 1; }
 
