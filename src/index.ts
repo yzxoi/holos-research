@@ -283,6 +283,10 @@ export default definePlugin({
   version: "1.1.0",
   description:
     "Structured research management — from idea discovery through paper submission, with full state machine tracking, adversarial review, and audit trail.",
+  author: "yzxoi <y@yzxoi.top> (https://github.com/yzxoi)",
+  homepage: "https://github.com/yzxoi/holos-research",
+  repository: "https://github.com/yzxoi/holos-research",
+  license: "MIT",
   capabilities: [capability("workspace.read"), capability("workspace.write")],
   activate: async () => {
     installIndexHooks();

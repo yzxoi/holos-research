@@ -151,4 +151,4 @@ Legacy projects created before the index are bootstrapped automatically on first
 
 ## License
 
-MIT
+MIT — Copyright (c) 2026 [yzxoi](https://github.com/yzxoi)

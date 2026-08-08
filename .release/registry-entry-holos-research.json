@@ -4,8 +4,11 @@
   "name": "holos-research",
   "description": "Structured research management — from idea discovery through paper submission, with full state machine tracking, adversarial review, and audit trail.",
   "repo": "https://github.com/yzxoi/holos-research",
+  "homepage": "https://github.com/yzxoi/holos-research",
   "author": {
-    "name": "unknown"
+    "name": "yzxoi",
+    "email": "y@yzxoi.top",
+    "url": "https://github.com/yzxoi"
   },
   "verified": false,
   "official": false,
@@ -28,8 +31,8 @@
         "algorithm": "ed25519",
         "signer": "483a6c48d867e72b6d48158918da77237e15b3d0e6d9f4f6ae8393cd198280ee"
       },
-      "integrity": "sha256-5a7ba952987ce9d1257c90e3617be1b9db2bd81bdc540eab5a7aec62bd55ccc4",
-      "manifestHash": "87808619cdf884f8c8c3261cbcf52851e68bcfb09ddff0524d995f4ded561da8",
+      "integrity": "sha256-87cde5ecae47d100d1dc92fd34c607d5af00da61d431145c5b53b038967dbfe2",
+      "manifestHash": "bcdadec5d282f908f64dec607a35878442f0a31807733c8294f836eaefe86c2d",
       "permissionsHash": "ee9b29df8acce156b67dbeff5de298a9425d65f85c8e401c0e2d11c2aa5adfca",
       "runtimeMode": "process",
       "featuresSummary": [
@@ -156,7 +159,7 @@
       "uiSurfaces": [
         "ui.workbenchPanel"
       ],
-      "publishedAt": "2026-08-08T07:27:38.639Z"
+      "publishedAt": "2026-08-08T09:21:30.188Z"
     }
   ],
   "yankedVersions": []
