@@ -386,7 +386,7 @@
 
 .holos-header__stats {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 20px;
   flex-wrap: wrap;
 }
@@ -408,6 +408,9 @@
   font-size: 18px;
   font-weight: 600;
   line-height: 1;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
 }
 
 .holos-header__current {
@@ -678,6 +681,13 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--holos-text-weak);
+}
+
+.holos-flow__phase-name {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
 }
 
 .holos-flow__col-head:hover .holos-flow__phase-label {
