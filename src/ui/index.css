@@ -28,6 +28,9 @@
   font-family: var(--holos-sans);
   color: var(--holos-text);
   background: transparent;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ── Shared primitives ──────────────────────────────────────────────────── */
