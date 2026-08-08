@@ -28,8 +28,8 @@
         "algorithm": "ed25519",
         "signer": "483a6c48d867e72b6d48158918da77237e15b3d0e6d9f4f6ae8393cd198280ee"
       },
-      "integrity": "sha256-94e39794f26c792738f05cbd04227023083e9ab0c78b0f675e8b97355bcf91c2",
-      "manifestHash": "007517d80f4b8e2b578f27e2191338f54937a24b4d4402c5f8a02e41f1b1227c",
+      "integrity": "sha256-d5240b229827593229f96c9d544e54c705f282ef3d63d423a009fd622525f476",
+      "manifestHash": "519c67e37bf94e30c64882b55fb9cf6c763b5dd5c549abaca822d629bdb1d718",
       "permissionsHash": "d51f02064cd3133284b24f707db1e6b5924d7c73985aa03c9d7510003c70bcbb",
       "runtimeMode": "process",
       "featuresSummary": [
@@ -157,7 +157,7 @@
         "ui.workbenchPanel",
         "ui.navigationItem"
       ],
-      "publishedAt": "2026-08-08T01:49:16.378Z"
+      "publishedAt": "2026-08-08T01:54:05.086Z"
     }
   ],
   "yankedVersions": []
