@@ -310,6 +310,7 @@ export default definePlugin({
     workbenchPanel({
       id: "monitor",
       label: "Research Monitor",
+      icon: "microscope",
       surface: "side",
       cardinality: "multi",
       requiresSession: false,
