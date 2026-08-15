@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# holos-research v1.0.0 — 修复后远程更新脚本
+# holos-research v1.1.1 — 修复后远程更新脚本
 #
-# 作用：替换 GitHub Release v1.0.0 资产（修复后的 tarball + 新签名）→
-#       更新官方 SII-Holos/synergy-plugins PR #38 分支（新 entry + 重建 registry.json）→
+# 作用：替换 GitHub Release v1.1.1 资产（修复后的 tarball + 新签名）→
+#       更新官方 SII-Holos/synergy-plugins PR 分支（新 entry + 重建 registry.json）→
 #       自动验证。
 #
 # 前置：gh 已登录、插件目录为 git main 分支、本目录含修复后的发布材料。
@@ -11,12 +11,12 @@ set -euo pipefail
 
 REPO="yzxoi/holos-research"
 REPO_URL="git@github.com:${REPO}.git"
-VERSION="1.1.0"
-TARBALL="holos-research-1.1.0.synergy-plugin.tgz"
+VERSION="1.1.1"
+TARBALL="holos-research-1.1.1.synergy-plugin.tgz"
 SIG="${TARBALL}.sig"
 REGISTRY_ENTRY=".release/registry-entry-holos-research.json"
 REGISTRY_REPO="SII-Holos/synergy-plugins"
-REGISTRY_BRANCH="publish/holos-research-1.1.0"
+REGISTRY_BRANCH="publish/holos-research-1.1.1"
 
 fail() { echo "❌ $*" >&2; exit 1; }
 

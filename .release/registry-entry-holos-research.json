@@ -20,19 +20,19 @@
   },
   "versions": [
     {
-      "version": "1.1.0",
+      "version": "1.1.1",
       "apiVersion": "4.0",
       "compatibility": {
         "synergy": ">=3.0.11"
       },
-      "downloadUrl": "https://github.com/yzxoi/holos-research/releases/download/v1.1.0/holos-research-1.1.0.synergy-plugin.tgz",
-      "signatureUrl": "https://github.com/yzxoi/holos-research/releases/download/v1.1.0/holos-research-1.1.0.synergy-plugin.tgz.sig",
+      "downloadUrl": "https://github.com/yzxoi/holos-research/releases/download/v1.1.1/holos-research-1.1.1.synergy-plugin.tgz",
+      "signatureUrl": "https://github.com/yzxoi/holos-research/releases/download/v1.1.1/holos-research-1.1.1.synergy-plugin.tgz.sig",
       "signature": {
         "algorithm": "ed25519",
         "signer": "483a6c48d867e72b6d48158918da77237e15b3d0e6d9f4f6ae8393cd198280ee"
       },
-      "integrity": "sha256-87cde5ecae47d100d1dc92fd34c607d5af00da61d431145c5b53b038967dbfe2",
-      "manifestHash": "bcdadec5d282f908f64dec607a35878442f0a31807733c8294f836eaefe86c2d",
+      "integrity": "sha256-7d411b1eaa8efe8762bba621a509b242c3ac76195c9f175385661a92ffe63953",
+      "manifestHash": "a32a9c668aad3c2edd5b2116467fb27464479f7807adac8c4a2c85dd4a14f96b",
       "permissionsHash": "ee9b29df8acce156b67dbeff5de298a9425d65f85c8e401c0e2d11c2aa5adfca",
       "runtimeMode": "process",
       "featuresSummary": [
@@ -159,7 +159,7 @@
       "uiSurfaces": [
         "ui.workbenchPanel"
       ],
-      "publishedAt": "2026-08-08T09:21:30.188Z"
+      "publishedAt": "2026-08-15T05:24:56.144Z"
     }
   ],
   "yankedVersions": []
