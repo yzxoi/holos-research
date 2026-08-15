@@ -1,3 +1,20 @@
+# holos-research v1.1.1 — Compose Quality Gates (unreleased)
+
+## Summary
+
+Paper-compose 升级为 contribution-first 工作流:写作前硬门禁 + 确定性检查脚本 + 场景化 playbook,参考 PaperSpine V4 的设计,适配 holos-research 对象模型。
+
+## What's Changed
+
+- **贡献契约前置 (Contribution-First)**: 写作前必须生成并通过 `contribution_check.py` 的 `confirmed_contribution.md`(四段式: Core Contribution / Why Needed / How Responds / Claim Boundary),每字段与 claim/experiment/exhibit 对象对齐
+- **Results 验证矩阵 (Results-as-Validation)**: `results_validation.md` 七列表格(Results Unit / Claim Tested / Evidence / Figure-Table / Condition / Allowed / NOT Allowed),`results_validation_check.py` 拒绝 metric-only 行,防 overclaim
+- **审稿人预演 (Reviewer-Audit)**: 写作前 `reviewer_audit.md` 登记审稿人异议(Reviewer Value Map + Objection Register + Editorial Fit),每个 objection 必须有 planned defense
+- **场景化 playbook**: `scenario-journal.md` / `scenario-conference.md` 拆分,writing-guide 增加场景路由 + 贡献契约
+- **5 个新检查脚本** (materialized to `.research/scripts/` on init): `compose_progress_check.py`(断点续跑) / `contribution_check.py` / `results_validation_check.py` / `latex_guard.py`(引用机制守卫: 禁字面 `[1]`、`\title` 必需、`\cite` 键校验) / `numeric_consistency_check.py`(数字一致性 advisory)
+- **新目录** `.research/compose/` 存放 compose 阶段产物
+
+---
+
 # holos-research v1.0.0 — Release Notes
 
 ## Summary

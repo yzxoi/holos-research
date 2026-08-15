@@ -2,6 +2,27 @@
 
 This guide provides **multiple narrative strategies** for different paper types and venues. It is NOT a rigid template — choose the strategy that fits your contribution, then adapt.
 
+## Scenario Routing (场景路由)
+
+先确定目标 venue,再选 playbook:
+
+| 目标 venue | 读取 |
+|---|---|
+| 期刊 (journal) | `references/scenario-journal.md` — 完整推导、全覆盖引用、多轮审稿视角 |
+| 会议 (conference) | `references/scenario-conference.md` — 严格页限、第一页自明、附录弹药库 |
+| 报告 / 综述 / 竞赛 | 本文件通用策略 + `references/scenario-*` 中适用的部分 |
+
+场景 playbook 覆盖本文件的通用策略;两者冲突时以场景 playbook 为准。
+本文件的 Section Standards 与 Venue Differences 是快速参考,具体页限/标题大小写/伦理声明以场景 playbook 和当年官方指南为准。
+
+## Contribution Contract (贡献契约)
+
+所有 section 的写作必须服务 `confirmed_contribution.md`(见 `references/contribution.md`):
+写作前先通过 `contribution_check.py` 门禁,再按其中声明的贡献、证据边界和 Claim Boundary 写作。
+Abstract 必须遵循 5 句契约(problem → gap → contribution → evidence → payoff),
+Introduction 必须遵循 7 级论证阶梯(problem → progress → gap → RQ → promise → evidence preview → payoff)。
+Results 每个 subsection 必须验证一个贡献承诺(见 `references/results-validation.md`)。
+
 ## Core Principle
 
 The reader is on a journey. At every point, ask: **"Does the reader have what they need to understand the next sentence?"** If not, that is where the problem lies.

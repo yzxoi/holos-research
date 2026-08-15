@@ -55,7 +55,7 @@ const ALL_DIRS = [
   "ideas", "plans", "experiments", "claims", "exhibits",
   "manuscripts", "submissions", "literature", "literature/by-topic",
   "literature/papers", "phase_runs", "journal", "snapshots",
-  "positioning", "code_artifacts", "rqg", "diagnoses", "checkpoint_briefs",
+  "positioning", "code_artifacts", "rqg", "compose", "diagnoses", "checkpoint_briefs",
 ]
 
 // ── seedProject ──────────────────────────────────────────────────────────────

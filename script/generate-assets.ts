@@ -18,6 +18,8 @@ const outFile = path.join(outDir, "assets.ts")
 function collect(dir: string, prefix = ""): Record<string, string> {
   const result: Record<string, string> = {}
   for (const entry of readdirSync(dir).sort()) {
+    // Skip Python bytecode caches and other non-source artifacts.
+    if (entry === "__pycache__" || entry.endsWith(".pyc")) continue
     const full = path.join(dir, entry)
     const rel = prefix ? `${prefix}/${entry}` : entry
     if (statSync(full).isDirectory()) {

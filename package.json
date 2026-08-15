@@ -1,6 +1,6 @@
 {
   "name": "holos-research",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "author": "yzxoi <y@yzxoi.top> (https://github.com/yzxoi)",
   "license": "MIT",
@@ -13,7 +13,7 @@
     "DESIGN.md"
   ],
   "scripts": {
-    "gen": "bun script/generate-assets.ts",
+    "gen": "bun script/generate-assets.ts && biome format --write src/generated/assets.ts",
     "dev": "synergy-plugin dev",
     "validate": "synergy-plugin validate --runtime-discovery",
     "build": "synergy-plugin build",

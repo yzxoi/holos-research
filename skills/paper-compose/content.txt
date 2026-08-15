@@ -23,6 +23,7 @@
 - [ ] Claims map to RQG-backed evidence
 - [ ] StorySpine drives intro arc (field_assumption → pain_point → gap → insight → method → evidence → implication)
 - [ ] Overclaim check passes before paper-ready
+- [ ] Pre-writing gates pass: contribution_check.py + results_validation_check.py exit 0 before drafting
 - [ ] Record used_wiki_refs in phase_run.context_refresh
 
 ### Forbidden
@@ -32,17 +33,23 @@
 
 ### Checkpoints
 - [ ] paper_ambition: User confirms claim strength (strong/moderate/weak)
+- [ ] pre_write_gates: contribution + results-validation + reviewer-audit all pass before drafting
 - [ ] submission_readiness: User confirms before submission
 
 ---
 
 Load references as needed:
+- `references/contribution.md` — 贡献契约四段式 + 检查清单(写作前硬门禁)
+- `references/results-validation.md` — Results 七列验证矩阵(防 metric dump)
+- `references/reviewer-audit.md` — 审稿人 objection 登记(写作前预演)
+- `references/scenario-journal.md` — 期刊场景 playbook(目标 venue 为期刊时)
+- `references/scenario-conference.md` — 会议场景 playbook(目标 venue 为会议时)
 - `references/exhibit-guide.md` — figure/table decision routing and quality standards
 - `references/data-figures.md` — 17 chart types with code templates
 - `references/diagram-guide.md` — architecture diagrams (Mermaid/draw.io/TikZ)
-- `references/writing-guide.md` — narrative strategies and venue differences
+- `references/writing-guide.md` — narrative strategies, scene routing, contribution contract
 - `references/prose-quality.md` — paragraph/sentence level quality (5-pass audit, reverse outline test)
-- `references/latex-conventions.md` — compilation and venue-specific LaTeX rules
+- `references/latex-conventions.md` — compilation, citation guard, numeric consistency, venue LaTeX rules
 
 ---
 
@@ -54,18 +61,19 @@ Create this DAG at skill entry. Exhibit production and structure can start in pa
 dagwrite({ nodes: [
   { id: "load",        content: "Load claims, experiments, wiki context",            status: "pending", deps: [] },
   { id: "exh-plan",    content: "Map claims to exhibits, plan all figures/tables",   status: "pending", deps: ["load"] },
+  { id: "gates",       content: "Pre-writing gates: contribution, results-validation, reviewer-audit, blueprints", status: "pending", deps: ["load"] },
   { id: "exh-produce", content: "Generate, render, verify, approve exhibits",        status: "pending", deps: ["exh-plan"] },
   { id: "structure",   content: "Register paper, bind claims/exhibits, set sections", status: "pending", deps: ["exh-plan"] },
-  { id: "write",       content: "Section-by-section writing via scribe+editor",      status: "pending", deps: ["exh-produce", "structure"] },
   { id: "quality",     content: "5-pass prose audit + reverse outline test",         status: "pending", deps: ["write"] },
   { id: "coherence",   content: "Full-paper coherence check via editor",             status: "pending", deps: ["quality"], assign: "editor" },
+  { id: "write",       content: "Section-by-section writing via scribe+editor",      status: "pending", deps: ["exh-produce", "structure", "gates"] },
   { id: "supplement",  content: "Write supplementary material",                       status: "pending", deps: ["write"] },
   { id: "compile",     content: "LaTeX compilation and formatting check",            status: "pending", deps: ["coherence", "supplement"] },
   { id: "present",     content: "Present to user, advance to audit",                 status: "pending", deps: ["compile"] }
 ]})
 ```
 
-`exh-produce` and `structure` run in parallel after exhibit planning.
+`exh-produce`, `structure`, and `gates` run in parallel after loading context.
 `quality` and `supplement` can also overlap if supplementary doesn't depend on main-text revisions.
 
 ---
@@ -293,10 +301,76 @@ research_paper(action="advance", id="paper_001", target_status="drafting")
 
 ---
 
+## Step 3.5: Pre-Writing Gates(硬门禁)
+
+> **在任何正文写作开始之前,必须依次通过以下三个门禁。** 门禁失败 = 不得动笔。
+> 断点续跑:进入本阶段时先运行
+> `.research/scripts/compose_progress_check.py .research/compose/ --json`,
+> 从第一个未通过的 gate 继续,不要重做已通过的阶段。
+
+### 3.5.1 Contribution Gate(贡献契约)
+
+**Load `references/contribution.md`。**
+
+写作前必须存在 `.research/compose/confirmed_contribution.md`,包含四个 section:
+`Core Contribution` / `Why This Contribution Is Needed` / `How This Paper Responds` / `Claim Boundary`。
+每个字段与对象模型对齐:
+- `Main contribution statement` ↔ `research_claim` 的 statement
+- `Evidence available` ↔ `research_experiment` metrics + `research_exhibit`
+- `Claim boundary` ↔ claim 的 caveats
+
+门禁:
+```
+python .research/scripts/contribution_check.py .research/compose/ --json
+```
+exit 0 才可继续。占位符(TODO/TBD/...)视为失败。
+
+### 3.5.2 Results Validation Gate(结果验证矩阵)
+
+**Load `references/results-validation.md`。**
+
+写入 `.research/compose/results_validation.md`,七列表格:
+`Results Unit | Contribution Claim Tested | Result/Evidence | Figure/Table | Confirmatory Condition | Allowed Interpretation | Interpretation NOT Allowed`。
+每个主要 Results subsection 必须验证至少一个贡献承诺;`Contribution Claim Tested` 或 `Result/Evidence` 为空 = 硬失败。
+
+门禁:
+```
+python .research/scripts/results_validation_check.py .research/compose/ --json
+```
+
+### 3.5.3 Reviewer Audit Gate(审稿人预演)
+
+**Load `references/reviewer-audit.md`。**
+
+写入 `.research/compose/reviewer_audit.md`(Reviewer Value Map + Objection Register + Editorial Fit)。
+用三个视角预演异议:
+- reviewer-method:机制与设计选择
+- reviewer-evidence:数字、基线、可复现性
+- reviewer-writing:贡献清晰度与过度声称
+
+每条 objection 必须有 planned defense;找不到诚实响应的 objection = 真实弱点,
+要么软化贡献(改 confirmed_contribution.md 重跑 3.5.1),要么补证据(回 experiment 阶段)。
+
+### 3.5.4 Blueprints + Scene Routing
+
+1. **场景路由**:目标 venue 是期刊 → 读 `references/scenario-journal.md`;会议 → `references/scenario-conference.md`;
+   报告/综述 → writing-guide 通用策略。场景 playbook 优先于通用 writing-guide。
+2. **Section Blueprints**:逐 section 写出蓝图(段落级):每段的功能、支撑的贡献、证据锚点。
+3. **Writing Rationale Matrix**:表格形式,每行一个写作单元,列含:
+   `Row ID | Manuscript Unit | Function | Contribution Link | SOTA/Example Pattern | Venue Norm | Evidence Anchor | Planned Change | Final Text Check`。
+   第一行论证整体框架;少于 8 行或内容泛化 = 不合格。
+
+### 3.5.5 门禁通过后
+
+- 更新 `research_paper(action="update", id="paper_XXX", ...)` 记录门禁状态
+- 在 journal 记录门禁结果:`research_journal(action="append", kind="decision_rationale", note="Pre-writing gates passed: contribution/results-validation/reviewer-audit")`
+- 之后才进入 Step 4 正文写作
+
 ## Step 4: Section-by-Section Writing
 
-**Load `references/writing-guide.md` for narrative strategies and section standards.**
+**Load `references/writing-guide.md`(场景路由 + 贡献契约)和对应场景 playbook(scenario-journal / scenario-conference)。**
 **Load `references/prose-quality.md` for paragraph-level quality control.**
+**前置条件:Step 3.5 三个门禁(contribution / results-validation / reviewer-audit)已全部通过。**
 
 ### Writing approach
 
@@ -444,6 +518,19 @@ Ensure main text references supplementary where appropriate:
 
 **Load `references/latex-conventions.md` for venue-specific formatting.**
 
+**Citation guard(硬门禁)** — 运行:
+```
+python .research/scripts/latex_guard.py paper/ --json
+```
+检查:无字面方括号数字(`[1]`)、main tex 含 `\title` + `\maketitle`、`\cite` 键全部有定义。
+任一 FAIL → 修复后重跑,不得跳过。
+
+**Numeric consistency(advisory)** — 运行:
+```
+python .research/scripts/numeric_consistency_check.py paper/ --json
+```
+报告实验 metrics 与正文数字的缺失/相近不等候选,人工核查后修复。
+
 - Compile the paper to verify no LaTeX errors
 - Check page count against venue limits
 - Verify figure/table placement
@@ -456,15 +543,18 @@ bash: cd paper && latexmk -pdf main.tex 2>&1 | tail -20
 
 ---
 
-### Claim Gate (v2.1)
+### Claim Gate (v3.0 — 前置)
 
-Before paper-ready:
-1. Classify each claim: strong (RQG-backed) / moderate (some evidence) / weak (exploratory)
-2. Map claims to paper sections
-3. Verify every claim has evidence links
-4. Add caveats for moderate/weak claims
+> v2.1 的 Claim Gate 已前置到 Step 3.5 的 Pre-Writing Gates。
+> 此处为 paper-ready 前的复核:claims 分类(strong/moderate/weak)、映射到 sections、
+> evidence links、caveats、用户确认 paper ambition——这些决策在 Step 3.5.1 已做,
+> 这里只验证写作没有漂移。
+
+1. Re-verify each claim classification against `confirmed_contribution.md` Claim Boundary
+2. Re-map claims to paper sections(writing 可能引入新声称)
+3. Re-verify every claim has evidence links(未在 Step 3.5.2 矩阵中的 subsection 是红旗)
+4. Re-check caveats for moderate/weak claims
 5. User confirms paper ambition
-
 ---
 
 ## Step 8: Advance to Ready
@@ -551,6 +641,7 @@ research_state(action="advance", target_phase="compose",  → then invoke paper-
 | Situation | Action |
 |-----------|--------|
 | Writing exposes unsupported claim | Rollback to compose (claim-build): `research_state(action="redirect", target_phase="compose", reason="Writing revealed unsupported claim: ...")` → then invoke claim-build skill |
+| Gate fails (contribution/results-validation/reviewer-audit) | Fix the artifact and re-run its check script; do NOT proceed to writing. If evidence is missing, rollback to `experiment`. |
 | Exhibit data inconsistent | Re-verify with auditor. If experiment data is wrong, rollback to `experiment`. |
 | Page limit exceeded | Prioritize: move content to supplementary, compress tables, tighten prose. Do NOT remove claims — move supporting evidence to appendix. |
 | Section draft quality too low | Re-run scribe with more context. Use editor for specific feedback. Iterate. |

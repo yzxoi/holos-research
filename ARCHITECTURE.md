@@ -614,6 +614,13 @@ PhaseFlow 组件渲染 6 阶段的拓扑图，包含：
 ├── rqg/                         # RQG 报告
 │   └── rqg_{id}.yaml
 │
+├── compose/                     # Compose 阶段产物
+│   ├── confirmed_contribution.md
+│   ├── results_validation.md
+│   ├── reviewer_audit.md
+│   ├── section_blueprints.md
+│   └── writing_rationale_matrix.md
+│
 ├── diagnoses/                   # 诊断报告
 │   └── diag_{id}.yaml
 │

@@ -107,7 +107,7 @@ Monitor query operations (UI-facing): `monitor.all`, `monitor.workflow`, `monito
 | `experiment-cycle` | experiment | Submit/monitor/collect/diagnose/supplement |
 | `experiment-iterate` | experiment | Result-driven optimization cycle with config adequacy guard |
 | `claim-build` | compose | Evidence→claim mapping + overclaim detection |
-| `paper-compose` | compose | Figure/table creation + narrative writing |
+| `paper-compose` | compose | Contribution-first manuscript: pre-writing gates, exhibits, narrative writing, LaTeX guards |
 | `paper-revise` | compose | Feedback-driven targeted manuscript revision |
 | `paper-audit` | compose | 7-dimension check + multi-round fix loop |
 | `venue-cycle` | compose | Submission/review/rebuttal/revision lifecycle |
@@ -128,6 +128,11 @@ Materialized to `.research/scripts/` on `research_init` (skip existing).
 | `figure_renderer.py` | Deterministic JSON → SVG architecture diagram renderer |
 | `paper_check.sh` | LaTeX compilation + structured JSON diagnostic report |
 | `restatement_check.py` | Theorem statement regression test |
+| `compose_progress_check.py` | Compose stage gate progress / resume checkpoint |
+| `contribution_check.py` | Pre-writing contribution contract gate |
+| `results_validation_check.py` | Results-as-validation matrix gate |
+| `latex_guard.py` | Citation mechanism guard (literal `[1]`, `\title`, `\cite` keys) |
+| `numeric_consistency_check.py` | Paper-vs-experiment numeric consistency (advisory) |
 
 Themes: clean-modern, nature-elegant, neurips-vivid, warm-minimal, monochrome-pro
 

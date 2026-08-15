@@ -171,7 +171,7 @@ Before advancing to the next phase, verify the exit conditions are met.
 | ground → design | Idea has stable contribution statement, reviewer verdict `pass` | Read idea `.md` Positioning section + `.reviews.jsonl` |
 | design → experiment | At least one plan is `active` | `research_plan(action="list")` — check for status `active` |
 | experiment → compose | Sufficient experiments completed (kill set passed); invoke claim-build skill | `research_experiment(action="list")` — check completed count vs plan's kill set |
-| compose → compose | Core claims `supported` or `qualified` and marked `final`; invoke paper-compose | `research_claim(action="list")` — check for `final` status claims |
+| compose → compose | Core claims `supported` or `qualified` and marked `final`; invoke paper-compose (it will run pre-writing gates: contribution → results-validation → reviewer-audit) | `research_claim(action="list")` — check for `final` status claims |
 | compose → compose | Paper status `ready`, core exhibits `approved`; invoke paper-audit | `research_paper(action="list")` + `research_exhibit(action="list")` |
 | compose → compose | All audit checks passed; invoke venue-cycle skill | Read paper `.reviews.jsonl` for audit round verdict |
 | compose → archive | Submission `accepted` or `closed` | `research_submission(action="list")` |

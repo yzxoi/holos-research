@@ -64,6 +64,34 @@ Common official sources:
 .research/scripts/paper_check.sh paper/ --limit [page_limit]
 ```
 
+## Citation Guard (引用守卫)
+
+编译前运行 `latex_guard.py` 强制引用机制正确:
+
+```bash
+python .research/scripts/latex_guard.py paper/ --json
+```
+
+硬规则(任一违反 → FAIL):
+- **禁用字面方括号数字**:文本中手打 `[1]`、`[3,12]` 是无效引用,必须用 `\cite{key}` 链接到 bibliography(`\bibliography{references.bib}` 或 `thebibliography` 的 `\bibitem{key}`)。手打 `[1]` 在 PDF 和 .docx 里都不会链接到文献表。
+- **main tex 必须含 `\title{...}` 和 `\maketitle`**。
+- **`\cite` 键必须已定义**:每个 `\cite{key}` 都要有对应的 `\bibitem{key}` 或 `.bib` 条目。
+
+Warning(不 FAIL 但应修):
+- `([15])` 数字外加括号的写法(与 `\citep` 重复包装)。
+
+## Numeric Consistency (数字一致性)
+
+正文数字必须与实验记录一致,写作完成后运行:
+
+```bash
+python .research/scripts/numeric_consistency_check.py paper/ --json
+```
+
+- 默认 advisory:报告实验 metrics 在正文中缺失的数字(warning)和相近但不等的数字对(potential_mismatch)。
+- `--strict` 时 potential_mismatch 导致 exit 1(审计阶段用)。
+- 数字不一致是 paper-audit 阶段 auditor 复核的重点;在 compose 阶段提前发现可省一轮返工。
+
 ## Compilation Workflow
 
 ### Standard build

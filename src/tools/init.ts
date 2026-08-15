@@ -209,6 +209,7 @@ export const researchInit = tool({
           "positioning",
           "code_artifacts",
           "rqg",
+          "compose",
           "diagnoses",
           "checkpoint_briefs",
         ];
