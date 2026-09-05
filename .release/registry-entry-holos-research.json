@@ -10,8 +10,8 @@
     "email": "y@yzxoi.top",
     "url": "https://github.com/yzxoi"
   },
-  "verified": false,
-  "official": false,
+  "verified": true,
+  "official": true,
   "keywords": [
     "synergy-plugin"
   ],
@@ -20,19 +20,19 @@
   },
   "versions": [
     {
-      "version": "1.1.1",
+      "version": "1.2.0",
       "apiVersion": "4.0",
       "compatibility": {
         "synergy": ">=3.0.11"
       },
-      "downloadUrl": "https://github.com/yzxoi/holos-research/releases/download/v1.1.1/holos-research-1.1.1.synergy-plugin.tgz",
-      "signatureUrl": "https://github.com/yzxoi/holos-research/releases/download/v1.1.1/holos-research-1.1.1.synergy-plugin.tgz.sig",
+      "downloadUrl": "https://github.com/yzxoi/holos-research/releases/download/v1.2.0/holos-research-1.2.0.synergy-plugin.tgz",
+      "signatureUrl": "https://github.com/yzxoi/holos-research/releases/download/v1.2.0/holos-research-1.2.0.synergy-plugin.tgz.sig",
       "signature": {
         "algorithm": "ed25519",
-        "signer": "483a6c48d867e72b6d48158918da77237e15b3d0e6d9f4f6ae8393cd198280ee"
+        "signer": "e773137070c06bfc36bee78e5599a99c477746bfff98ed848e3d6aec6a997972"
       },
-      "integrity": "sha256-7d411b1eaa8efe8762bba621a509b242c3ac76195c9f175385661a92ffe63953",
-      "manifestHash": "a32a9c668aad3c2edd5b2116467fb27464479f7807adac8c4a2c85dd4a14f96b",
+      "integrity": "sha256-9eca7fc415104f5b3ffa0653cda44bf127826c554c3eee1d65531fb181fba0ee",
+      "manifestHash": "058f0f48d7e106ee6260456f9c412ee34759cf4fd83e9ea8a7e18ebb92414237",
       "permissionsHash": "ee9b29df8acce156b67dbeff5de298a9425d65f85c8e401c0e2d11c2aa5adfca",
       "runtimeMode": "process",
       "featuresSummary": [
@@ -97,14 +97,14 @@
           "description": "Monitor board — real-time research project dashboard.\n\nProvides aggregated views of the research workflow, entities, timeline, journal, and active phase run. This is a read-only tool (no mutations).\n\n## Actions\n\n- **action=\"workflow\"**: Returns workflow visualization data — current phase, blocked status, and the state of all 6 phases (explore → ground → design → realize → experiment → compose) with completion/pending flags.\n\n- **action=\"phase\"**: Returns detailed info for a specific phase. Requires phase param. Includes active runs, all historical runs in that phase, refs, and human checkpoints.\n\n- **action=\"entities\"**: Returns entity summary — counts and status breakdowns for all 7 entity types (ideas, plans, experiments, claims, exhibits, papers, submissions), plus current focus refs.\n\n- **action=\"timeline\"**: Returns recent timeline events (default last 20). Use limit param to adjust count, type param to filter by event type (e.g. \"idea.created\", \"wiki.paper_ingested\"), since param for ISO timestamp lower bound, or refs param to filter by entity IDs (comma-separated).\n\n- **action=\"journal\"**: Returns recent journal notes (default last 20). Use limit param to adjust.\n\n- **action=\"active_run\"**: Returns the currently active phase run with full context (state, run details, focus summary, blocked status).\n\nFiles: .research/state.yaml, .research/phase_runs/, .research/timeline.jsonl, .research/journal/, .research/{ideas,plans,experiments,claims,exhibits,manuscripts,submissions}/"
         },
         {
-          "key": "tool:research_journal",
-          "title": "research_journal",
-          "description": "Research journal — append-only structured notes for decisions, rationales, opportunities spotted mid-batch, and handoffs.\n\nThe journal is the canonical place to record *why* something was done (vs. timeline.jsonl which records *what*). Skills route to this tool for decision_rationale, opportunity_spotted (mid-batch ideas you should NOT act on yet), failure_analysis, etc.\n\n## Actions\n\n- **action=\"append\"**: Append a new journal note. Required: kind, summary, note. Optional: phase, phase_run_ref, refs, importance, author (defaults to \"agent\"), source_event.\n- **action=\"read\"** / **action=\"query\"**: List recent journal notes (synonyms). Optional filters: last (N most recent), kind, phase, phase_run_ref, refs (any-match), importance.\n\n## Kinds\n\n- `idea_rationale` — why an idea was created / refined\n- `decision_rationale` — why a decision was made (most common)\n- `failure_analysis` — postmortem on a failed experiment / pivot\n- `design_note` / `experiment_note` / `claim_note` / `paper_note` — phase-scoped working notes\n- `handoff` — context preservation across sessions\n- `status_override` — note attached to a force/bypass action\n- `opportunity_spotted` — promising idea / approach surfaced mid-batch (do NOT act on it immediately; record + finish current batch first)\n\n## Importance\n\n`normal` (default) | `important` | `critical` — surfaced more prominently in monitor / brief generation.\n\nFiles: .research/journal/research_notes.jsonl (append-only JSONL)."
-        },
-        {
           "key": "tool:compute_submit",
           "title": "compute_submit",
           "description": "Unified compute submission for the SII Inspire platform.\n\nProvides two modes:\n- **interactive**: Create notebook instance + setup rtunnel SSH tunnel for development/debugging\n- **distributed**: Submit multi-GPU distributed training tasks\n\nInteractive mode flow:\n1. Creates notebook via inspire_notebook\n2. Waits for notebook to be running\n3. Sets up rtunnel server + sshd inside container\n4. Starts local rtunnel client\n5. Returns SSH connection command\n\nDistributed mode flow:\n1. Validates command for offline workspace constraints\n2. Submits task via inspire_submit\n3. Returns job info with monitoring links\n\nBoth modes automatically link to research_experiment lifecycle when experiment_id is provided."
+        },
+        {
+          "key": "tool:qzcli_run",
+          "title": "qzcli_run",
+          "description": "Run the Qizhi (启智) platform CLI `qzcli` from inside a research project.\n\nqzcli is a kubectl/docker-style CLI for managing GPU compute jobs on the Qizhi\nplatform (https://github.com/tianyilt/qzcli_tool). This tool wraps it with\nstructured parameters, research-phase gating, and experiment linkage.\n\nActions:\n- **login** — CAS login (username only; password via ~/.qzcli/.env or QZCLI_PASSWORD env)\n- **res** — refresh/list cached workspaces + compute groups (`--update` after joining new workspaces)\n- **avail** — query free nodes per compute group\n- **create** — submit a GPU training job\n- **list** — list jobs (compact table)\n- **status** — job status/detail (JSON)\n- **stop** — stop a job\n- **logs** — fetch job logs (JSON, `--tail` for recent lines)\n- **batch** — batch submit from a JSON config file\n- **hpc** — submit HPC/CPU (Slurm-style) jobs\n\nSetup (one-time):\n1. Install: `git clone https://github.com/tianyilt/qzcli_tool && cd qzcli_tool && pip install -r requirements.txt && pip install -e .`\n2. Credentials: `mkdir -p ~/.qzcli && chmod 600 ~/.qzcli/.env` with QZCLI_USERNAME/QZCLI_PASSWORD, or run `qzcli login` interactively.\n3. Discover: `qzcli_run(action=\"res\", update=true)` then `qzcli_run(action=\"avail\")`.\n\nOnly available in the **experiment** phase (same gate as compute_submit).\n`extra_args` passes through qzcli-specific flags (e.g. `--exclude-node`,\n`--dataset`, `--include-node`)."
         },
         {
           "key": "tool:research_checkpoint_brief",
@@ -152,14 +152,14 @@
         "research_wiki",
         "research_timeline",
         "research_monitor",
-        "research_journal",
         "compute_submit",
+        "qzcli_run",
         "research_checkpoint_brief"
       ],
       "uiSurfaces": [
         "ui.workbenchPanel"
       ],
-      "publishedAt": "2026-08-15T05:24:56.144Z"
+      "publishedAt": "2026-09-05T04:24:27.429Z"
     }
   ],
   "yankedVersions": []
