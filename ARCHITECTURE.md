@@ -24,7 +24,7 @@ Holos-Research 是一个 AI 辅助科研自动化 pipeline，运行于 Synergy �
 ```
 ┌─────────────────────────────────────────────────┐
 │            Synergy Plugin Layer                  │
-│   14 tools · 17 skills · 5 sub-agents           │
+│   16 tools · 17 skills · 5 sub-agents           │
 │   wrapTool() → project dir context injection     │
 ├─────────────────────────────────────────────────┤
 │            Research Engine                       │
@@ -49,11 +49,11 @@ Holos-Research 是一个 AI 辅助科研自动化 pipeline，运行于 Synergy �
 
 ### 2.1 Synergy Plugin Layer
 
-顶层的 Synergy Plugin 注册了 14 个工具、17 个技能和 5 个子代理。所有工具通过 `wrapTool()` 注入项目目录上下文，确保多项目场景下的路径隔离。
+顶层的 Synergy Plugin 注册了 16 个工具、17 个技能和 5 个子代理。所有工具通过 `wrapTool()` 注入项目目录上下文，确保多项目场景下的路径隔离。
 
 **关键职责**：
 
-- **工具注册**：将 `research_init`、`research_state`、`research_idea` 等 14 个工具注册到 Synergy 框架
+- **工具注册**：将 `research_init`、`research_state`、`research_idea` 等 16 个工具注册到 Synergy 框架
 - **技能路由**：`research` 技能作为路由层，读取当前 state 后分派到对应阶段技能
 - **子代理管理**：5 个专业子代理（critic / methodologist / auditor / editor / inspector）以 `subagent` 模式运行
 
@@ -248,8 +248,8 @@ StorySpine 在 explore 阶段创建，在 ground 阶段被 grounding 和 reframi
 
 The `entityExists` helper is used by `research_wiki` to validate that referenced entity IDs actually exist in the `.research/` directory before allowing operations that depend on them. This applies to gap IDs in particular: when `registerGap` or `updateEntry` references a gap ID (e.g., `gap_001`), `entityExists` verifies that the gap entry exists in `literature/gap_map.yaml`. If the gap ID does not exist, the operation is rejected with a clear error message rather than silently creating a dangling reference. This prevents orphaned gap references from accumulating in the literature knowledge base.
 | **design**     | `research_plan`                                        | create/approve plan, set kill/sufficient criteria | attempt on plan draft, evaluate on review scores, approve→attempt |
-| **realize**    | `research_plan`                                        | realize plan, code review, sanity contract (local <5 min only — `compute_submit` is NOT permitted in realize; advance to `experiment` to submit jobs) | attempt on implementation, evaluate on code review              |
-| **experiment** | `research_experiment`, `compute_submit`                | register/run/complete experiment, RQG report      | attempt on job submit, evaluate on results, decide on diagnosis |
+| **realize**    | `research_plan`                                        | realize plan, code review, sanity contract (local <5 min only — `compute_submit`/`qzcli_run` are NOT permitted in realize; advance to `experiment` to submit jobs) | attempt on implementation, evaluate on code review              |
+| **experiment** | `research_experiment`, `compute_submit`, `qzcli_run`   | register/run/complete experiment, RQG report      | attempt on job submit, evaluate on results, decide on diagnosis |
 | **compose**    | `research_claim`, `research_exhibit`, `research_paper` | build claims, create exhibits, write paper        | attempt on draft, evaluate on review, decide on revision        |
 
 **updateActivePhaseRun 行为**：每个工具在执行核心操作时，会调用 `updateActivePhaseRun(phase, {...})` 非阻塞地更新当前 PhaseRun 的 inner loop 状态（incrementAttempts / state transition / summary）。这是 best-effort 的——如果 PhaseRun 不存在或 phase 不匹配，操作会被静默跳过。调用后还会自动执行 `enforceBudget` 检查，超出 budget 时记录警告。

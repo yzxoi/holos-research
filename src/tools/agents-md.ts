@@ -117,8 +117,8 @@ Each research phase has a strict scope. Crossing boundaries without advancing vi
 - **explore**: Survey + ideate ONLY. No method design, no code.
 - **ground**: Position novelty ONLY. No method design, no code.
 - **design**: Design method + experiment plan ONLY. No code, no training.
-- **realize**: Write code + verify sanity/quality contracts ONLY. Sanity checks must be <5 min, single GPU, 1-2 batches. **NO training, NO compute_submit, NO inspire_submit, NO nohup training.** If you need to run training, the code is ready — advance to experiment phase first.
-- **experiment**: Submit compute jobs + run full experiments ONLY after phase advance. \`compute_submit\` and \`inspire_submit\` are ONLY for this phase.
+- **realize**: Write code + verify sanity/quality contracts ONLY. Sanity checks must be <5 min, single GPU, 1-2 batches. **NO training, NO compute_submit, NO qzcli_run, NO inspire_submit, NO nohup training.** If you need to run training, the code is ready — advance to experiment phase first.
+- **experiment**: Submit compute jobs + run full experiments ONLY after phase advance. \`compute_submit\`, \`qzcli_run\` (Qizhi/启智 platform) and \`inspire_submit\` are ONLY for this phase.
 - **compose**: Write paper ONLY. No new experiments (supplements go through experiment-iterate).
 
 **If you find yourself running training in realize phase, STOP and use \`research_state(action="advance", target_phase="experiment")\`.**
@@ -127,7 +127,7 @@ Each research phase has a strict scope. Crossing boundaries without advancing vi
 
 - **Use \`nohup\` with log redirect**: \`nohup python train.py > logs/exp_name.log 2>&1 &\`
 - **Set \`agenda_watch\`** for periodic status checks — NEVER use bash to poll/wait
-- **Inspire platform tasks**: use \`inspire_submit\`, then \`agenda_watch\` to monitor
+- **Inspire/Qizhi platform tasks**: use \`inspire_submit\` or \`qzcli_run\` (Qizhi), then \`agenda_watch\` to monitor
 - **Always capture logs**: every experiment must have a log file in \`logs/\`
 
 ### Evidence, Not Experiments

@@ -36,6 +36,7 @@ import { researchJournal } from "./tools/journal";
 import { researchMonitor } from "./tools/monitor";
 import { researchPaper } from "./tools/paper";
 import { researchPlan } from "./tools/plan";
+import { qzcliRun } from "./tools/qzcli";
 import { researchState } from "./tools/state";
 import { researchSubmission } from "./tools/submission";
 import { researchTimeline } from "./tools/timeline";
@@ -118,8 +119,8 @@ const toolContributions = [
   adaptTool("research_wiki", researchWiki),
   adaptTool("research_timeline", researchTimeline),
   adaptTool("research_monitor", researchMonitor),
-  adaptTool("research_journal", researchJournal),
   adaptTool("compute_submit", computeSubmit),
+  adaptTool("qzcli_run", qzcliRun),
   adaptTool("research_checkpoint_brief", checkpointBrief),
 ];
 
@@ -280,7 +281,7 @@ const skillContributions = SKILLS.map((s) =>
 
 export default definePlugin({
   id: "holos-research",
-  version: "1.1.1",
+  version: "1.2.0",
   description:
     "Structured research management — from idea discovery through paper submission, with full state machine tracking, adversarial review, and audit trail.",
   author: "yzxoi <y@yzxoi.top> (https://github.com/yzxoi)",

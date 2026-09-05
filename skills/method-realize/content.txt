@@ -29,7 +29,7 @@
 - [ ] Do not change the method design during realize — route to method-iterate instead
 - [ ] Do not skip sanity contract
 - [ ] Do not register experiments without committed code
-- [ ] **Do NOT submit compute jobs or run training beyond sanity/quality contract verification** — `compute_submit`, `inspire_submit`, `nohup` training, and long-running GPU jobs are FORBIDDEN in realize phase
+- [ ] **Do NOT submit compute jobs or run training beyond sanity/quality contract verification** — `compute_submit`, `qzcli_run`, `inspire_submit`, `nohup` training, and long-running GPU jobs are FORBIDDEN in realize phase
 - [ ] **Sanity/quality contract verification MUST be quick (<5 min, single GPU, 1-2 batches only)** — if validation needs full training, the code is ready; advance to experiment phase first
 - [ ] Do not call `research_experiment(action="complete"|"fail")` — experiments are registered but not executed in this phase
 

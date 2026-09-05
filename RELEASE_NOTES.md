@@ -1,4 +1,27 @@
-# holos-research v1.1.1 — Compose Quality Gates (unreleased)
+# holos-research v1.2.0 — Qizhi (启智) CLI Bridge
+
+## Summary
+
+内置 qzcli 工具:新增 `qzcli_run`,把启智平台 CLI(https://github.com/tianyilt/qzcli_tool)包装为 research 插件工具,与 `compute_submit` 并列,支持启智平台的资源发现、任务提交/管理、日志、批量与 HPC 提交。
+
+## What's Changed
+
+- **新工具 `qzcli_run`** — 10 个 action: `login` / `res` / `avail` / `create` / `list` / `status` / `stop` / `logs` / `batch` / `hpc`
+  - 懒检测 qzcli 二进制(支持 `QZCLI_BIN` 覆盖),缺失时给出 pip install 指引
+  - 与 `compute_submit` 相同的 **experiment phase gate**: 仅 experiment 阶段可用,其他阶段返回 phase_boundary_violation
+  - 结构化参数 → qzcli 子命令映射,create/status/logs/hpc 自动追加 `--json` 并抽取 job_id
+  - `experiment_id` 联动:提交成功后在 metadata 输出 linkage(schedule action + job_id)
+  - 错误分类:auth / network / not-found 可操作化提示;`extra_args` 透传 qzcli 专有 flag
+- **16 tools 总计**(+1);文档同步: README / ARCHITECTURE / agents-md 阶段边界 / method-realize 禁用清单
+- 测试: 新增 test/qzcli-run.test.ts(fake qzcli fixture 15 项: 门禁 / 检测 / 参数映射 / JSON / 错误分类)
+
+---
+
+**Official Plugin Market 标记**:本版本起 registry entry 请求 `official: true` + `verified: true`(由 SII Holos 维护者审核)。
+
+---
+
+# holos-research v1.1.1 — Compose Quality Gates
 
 ## Summary
 

@@ -10,7 +10,7 @@ A research operating system for months-long projects:
 
 - **1 project-level state machine** — 6 phases: explore → ground → design → realize → experiment → compose
 - **7 object-level state machines** — Idea, Plan, Experiment, Claim, Exhibit, Paper, Submission
-- **15 tools** — entity lifecycle management, checkpoint/monitor/journal, compute submission
+- **16 tools** — entity lifecycle management, checkpoint/monitor/journal, compute submission (Inspire + Qizhi)
 - **4 specialized agents** — critic, methodologist, auditor, editor
 - **17 skills** — per-phase skills + inner-loop iterations + cross-cutting orchestrators
 - **5 utility scripts** — stats, plot, figure_renderer, paper_check, restatement_check
@@ -22,7 +22,7 @@ Architecture:
 Synergy (Plugin API 4)              .research/ (single source of truth)
 ────────────────────────────        ──────────────────────────────────
 • definePlugin contributions        state.yaml + index.yaml
-• 15 tool() + 9 operation()         ideas/ plans/ experiments/ claims/
+• 16 tool() + 9 operation()         ideas/ plans/ experiments/ claims/
 • 4 agent() + 17 skill()            exhibits/ manuscripts/ submissions/
 • ui.workbenchPanel (Monitor)       timeline.jsonl journal/ phase_runs/
 • workspace.read/write Host APIs    literature/ positioning/ rqg/ diagnoses/
@@ -82,6 +82,7 @@ synergy-plugin dev --server-url http://127.0.0.1:PORT
 | `research_monitor` | workflow, phase, entities, timeline, journal, active_run | Agent-facing dashboard views |
 | `research_journal` | append_note, query, human_decisions | Research journal (append-only) |
 | `compute_submit` | interactive, distributed | SII Inspire compute submission (lazy kit) |
+| `qzcli_run` | login, res, avail, create, list, status, stop, logs, batch, hpc | Qizhi (启智) platform CLI bridge (lazy qzcli binary detection) |
 | `research_checkpoint_brief` | — | Generate pending checkpoint brief |
 
 Monitor query operations (UI-facing): `monitor.all`, `monitor.workflow`, `monitor.phase`, `monitor.entities`, `monitor.timeline`, `monitor.journal`, `monitor.activeRun`, `monitor.brief`, `monitor.checkpointSummary`.
