@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# holos-research v1.1.1 — 远程发布脚本（需用户手动执行，因 GitHub 远程写操作不在 agent 权限内）
+# holos-research v1.2.0 — 远程发布脚本（需用户手动执行，因 GitHub 远程写操作不在 agent 权限内）
 #
-# 作用：创建公共插件仓库 → 推送代码 → 创建 GitHub Release v1.1.1（含 tarball + 签名）→
-#       向官方 SII-Holos/synergy-plugins 注册表开 PR → 自动验证并打印全部链接。
+# 作用：创建公共插件仓库 → 推送代码 → 创建 GitHub Release v1.2.0（含 tarball + 签名）→
+#       向官方 SII-Holos/synergy-plugins 注册表开 PR（official/verified 标记由维护者批准）→ 自动验证并打印全部链接。
 #
 # 前置：gh 已登录（gh auth status）、网络可达 github.com。
 # 用法：bash script/publish.sh
@@ -10,13 +10,13 @@ set -euo pipefail
 
 REPO="yzxoi/holos-research"
 REPO_URL="git@github.com:${REPO}.git"
-VERSION="1.1.1"
-TARBALL="holos-research-1.1.1.synergy-plugin.tgz"
+VERSION="1.2.0"
+TARBALL="holos-research-1.2.0.synergy-plugin.tgz"
 SIG="${TARBALL}.sig"
 REGISTRY_ENTRY=".release/registry-entry-holos-research.json"
 REGISTRY_REPO="SII-Holos/synergy-plugins"
-REGISTRY_BRANCH="publish/holos-research-1.1.1"
-EXPECTED_SHA256="7d411b1eaa8efe8762bba621a509b242c3ac76195c9f175385661a92ffe63953"
+REGISTRY_BRANCH="publish/holos-research-1.2.0"
+EXPECTED_SHA256="9eca7fc415104f5b3ffa0653cda44bf127826c554c3eee1d65531fb181fba0ee"
 
 fail() { echo "❌ $*" >&2; exit 1; }
 
@@ -78,7 +78,7 @@ else
 fi
 git -C "${REG_DIR}" checkout -b "${REGISTRY_BRANCH}"
 git -C "${REG_DIR}" add plugins/holos-research.json registry.json
-git -C "${REG_DIR}" commit -m "add holos-research 1.1.1 (API4)"
+git -C "${REG_DIR}" commit -m "add holos-research 1.2.0 (API4, official)"
 
 # ── 5/6 推送注册表分支并开 PR（幂等）────────────────────────────────────────
 echo "==> 5/6 推送分支并开 PR"
@@ -90,15 +90,17 @@ else
     --repo "${REGISTRY_REPO}" \
     --base main \
     --head "${REGISTRY_BRANCH}" \
-    --title "Add holos-research 1.1.1 to the Official Plugin Registry" \
+    --title "Add holos-research 1.2.0 to the Official Plugin Registry (official + verified)" \
     --body-file "/dev/stdin" <<'EOF'
-Adds **holos-research** v1.1.1 to the official Synergy Plugin Market registry — a Plugin API 4 plugin for structured research management (15 tools, 4 agents, 17 skills, 9 monitor operations, embedded Solid Monitor workbench panel; workspace.read/write only).
+Adds **holos-research** v1.2.0 to the official Synergy Plugin Market registry — a Plugin API 4 plugin for structured research management (16 tools, 4 agents, 17 skills, 9 monitor operations, embedded Solid Monitor workbench panel; workspace.read/write only).
 
-- Plugin id: `holos-research` · Version: 1.1.1 · API 4.0 · compatibility `synergy >= 3.0.11`
+- Plugin id: `holos-research` · Version: 1.2.0 · API 4.0 · compatibility `synergy >= 3.0.11`
 - Repo: https://github.com/yzxoi/holos-research
-- Artifact: holos-research-1.1.1.synergy-plugin.tgz (+ .sig), Ed25519 signer 483a6c48d867e72b6d48158918da77237e15b3d0e6d9f4f6ae8393cd198280ee
-- Integrity: sha256-7d411b1eaa8efe8762bba621a509b242c3ac76195c9f175385661a92ffe63953
-- Verified via `synergy-plugin build/validate --runtime-discovery/pack` + 690 tests + isolated-instance E2E
+- Artifact: holos-research-1.2.0.synergy-plugin.tgz (+ .sig), Ed25519 signer e773137070c06bfc36bee78e5599a99c477746bfff98ed848e3d6aec6a997972
+- Integrity: sha256-9eca7fc415104f5b3ffa0653cda44bf127826c554c3eee1d65531fb181fba0ee
+- New in 1.2.0: `qzcli_run` — Qizhi (启智) platform CLI bridge (10 actions: login/res/avail/create/list/status/stop/logs/batch/hpc), experiment-phase gate, experiment_id linkage
+- Trust flags: entry sets `official: true` + `verified: true` per SII Holos maintainer request (holos-research is maintained under the SII Holos org umbrella)
+- Verified via `synergy-plugin build/validate --runtime-discovery/pack` + 705 tests
 EOF
   echo "    ✔ PR 已创建"
 fi
