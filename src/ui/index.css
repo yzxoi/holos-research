@@ -3,8 +3,11 @@
    other plugins. Colors resolve through host semantic tokens with a dark-
    friendly fallback so the panel adapts to both color schemes. */
 
-/* Semantic aliases for this plugin, backed by host tokens where available. */
-:root {
+/* Semantic aliases for this plugin, backed by host tokens where available.
+   Declared on both rendering roots: `.holos-state` covers loading/error/empty,
+   `.holos-root` covers the ready board (the UI5 CSS scoper rejects :root). */
+.holos-root,
+.holos-state {
   --holos-accent: var(--icon-interactive-base, #5aa6f0);
   --holos-info: var(--icon-info-base, #a78bfa);
   --holos-warning: var(--icon-warning-base, #fbbf24);

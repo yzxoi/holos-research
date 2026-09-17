@@ -281,7 +281,7 @@ const skillContributions = SKILLS.map((s) =>
 
 export default definePlugin({
   id: "holos-research",
-  version: "1.2.0",
+  version: "1.3.0",
   description:
     "Structured research management — from idea discovery through paper submission, with full state machine tracking, adversarial review, and audit trail.",
   author: "yzxoi <y@yzxoi.top> (https://github.com/yzxoi)",
