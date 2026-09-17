@@ -1,3 +1,17 @@
+# holos-research v1.3.0 — Plugin UI API 5
+
+## Summary
+
+Monitor 面板迁移到 Plugin UI API 5：UI5 宿主会拒绝可执行的 UI4 组件，不迁移会导致工作台面板在新版 Synergy 上静默消失。后端 Plugin API 4 工具、hooks 与 capability 全部不变。
+
+## What's Changed
+
+- Monitor 面板组件改用 UI5 单一 `context` prop（`PluginComponentProps<PluginSurfaceContext>`）
+- CSS 变量声明从 `:root` 移到 `.holos-root` / `.holos-state` 双渲染根（UI5 CSS scoper 拒绝 `:root`）
+- 依赖升级 `@ericsanchezok/synergy-plugin` / `synergy-plugin-kit` ^3.0.23，构建产物声明 `artifacts.ui.apiVersion: "5.0"`，最低宿主版本提升为 `>=3.0.23`
+- zod 钉在 4.1.8 与 synergy-util 对齐，避免双版本类型冲突
+- 新增 manifest UI5 工件断言测试，防止 UI4 回归
+
 # holos-research v1.2.0 — Qizhi (启智) CLI Bridge
 
 ## Summary

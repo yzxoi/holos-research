@@ -1,4 +1,4 @@
-import type { PluginSurfaceContext } from "@ericsanchezok/synergy-plugin";
+import type { PluginComponentProps, PluginSurfaceContext } from "@ericsanchezok/synergy-plugin";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import "./index.css";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -97,7 +97,7 @@ function EmptyState() {
   );
 }
 
-export default function MonitorPanel(context: PluginSurfaceContext) {
+export default function MonitorPanel({ context }: PluginComponentProps<PluginSurfaceContext>) {
   const [state, setState] = createSignal<LoadState>({ status: "loading" });
   const [data, setData] = createSignal<MonitorData | null>(null);
   const [brief, setBrief] = createSignal<ResearchBrief | null>(null);
